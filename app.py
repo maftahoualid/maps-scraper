@@ -2,6 +2,7 @@ import os
 import io
 import csv
 import json
+import math
 import urllib.request
 import urllib.error
 from flask import Flask, render_template_string, request, jsonify, Response
@@ -104,7 +105,7 @@ main {
 }
 
 .sidebar {
-    width: 360px;
+    width: 380px;
     background-color: var(--color-surface);
     padding: 24px;
     overflow-y: auto;
@@ -122,7 +123,7 @@ main {
 form {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
 }
 
 fieldset {
@@ -133,19 +134,20 @@ fieldset {
 
 legend {
     font-weight: 500;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     color: var(--color-primary);
+    font-size: 15px;
 }
 
 .form-group {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
 }
 
 label {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
     color: var(--color-text-light);
-    font-size: 13.5px;
+    font-size: 13px;
 }
 
 input[type="text"],
@@ -217,32 +219,13 @@ th {
     font-weight: 500;
 }
 
-.status-ok {
-    background-color: var(--color-success);
-    color: white;
-}
+.status-ok { background-color: var(--color-success); color: white; }
+.status-pending { background-color: var(--color-warning); color: var(--color-text); }
+.status-working { background-color: var(--color-warning); color: var(--color-text); }
+.status-failed { background-color: var(--color-error); color: white; }
+.status-error { background-color: var(--color-error); color: white; }
 
-.status-pending {
-    background-color: var(--color-warning);
-    color: var(--color-text);
-}
-
-.status-working {
-    background-color: var(--color-warning);
-    color: var(--color-text);
-}
-
-.status-failed {
-    background-color: var(--color-error);
-    color: white;
-}
-
-.status-error {
-    background-color: var(--color-error);
-    color: white;
-}
-
-.download-button, .delete-button, .view-button, .resume-button {
+.download-button, .delete-button, .view-button, .resume-button, .leads-button {
     padding: 5px 10px;
     border-radius: 4px;
     font-size: 12px;
@@ -255,24 +238,19 @@ th {
     margin-right: 4px;
 }
 
-.download-button {
-    background-color: var(--color-success);
-}
+.download-button { background-color: var(--color-success); }
 .download-button:hover { background-color: #388e3c; }
 
-.view-button {
-    background-color: #2c7be5;
-}
+.view-button { background-color: #2c7be5; }
 .view-button:hover { background-color: #1a68d1; }
 
-.resume-button {
-    background-color: #d97706;
-}
+.resume-button { background-color: #d97706; }
 .resume-button:hover { background-color: #b45309; }
 
-.delete-button {
-    background-color: var(--color-error);
-}
+.leads-button { background-color: #0284c7; }
+.leads-button:hover { background-color: #0369a1; }
+
+.delete-button { background-color: var(--color-error); }
 .delete-button:hover { background-color: #c62828; }
 
 .json-button {
@@ -374,10 +352,7 @@ th {
     padding: 0;
 }
 
-.sponsor-close:hover {
-    background-color: transparent;
-    color: var(--color-text);
-}
+.sponsor-close:hover { background-color: transparent; color: var(--color-text); }
 
 .sponsor-text {
     margin: 0 0 12px 0;
@@ -426,7 +401,6 @@ nav a:hover {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Spinner */
 .spinner {
     display: none;
     width: 20px;
@@ -539,7 +513,6 @@ nav a:hover {
 }
 
 .badge-flag { background: #f1f5f9; color: #475569; }
-.badge-active { background: #dbeafe; color: #1e40af; }
 
 .text-muted {
     font-size: 12px;
@@ -583,7 +556,7 @@ nav a:hover {
                 <p class="sponsor-text">Support the ongoing maintenance and development of this project by becoming a sponsor. Your contribution helps ensure the tool's continued improvement and reliability.</p>
                 <a href="https://github.com/sponsors/gosom" class="sponsor-button" target="_blank" rel="noopener noreferrer">
                     <svg height="16" width="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.25 2.5C4.25 1.83696 4.67143 1.25 5.25 1.25C5.82857 1.25 6.25 1.83696 6.25 2.5C6.25 3.16304 5.82857 3.75 5.25 3.75C4.67143 3.75 4.25 3.16304 4.25 2.5ZM2.5 3.75C1.92143 3.75 1.5 3.16304 1.5 2.5C1.5 1.83696 1.92143 1.25 2.5 1.25C3.07857 1.25 3.5 1.83696 3.5 2.5C3.5 3.16304 3.07857 3.75 2.5 3.75ZM8 1.25C7.42143 1.25 7 1.83696 7 2.5C7 3.16304 7.42143 3.75 8 3.75C8.57857 3.75 9 3.16304 9 2.5C9 1.83696 8.57857 1.25 8 1.25ZM10.75 2.5C10.75 1.83696 11.1714 1.25 11.75 1.25C12.3286 1.25 12.75 1.83696 12.75 2.5C12.75 3.16304 12.3286 3.75 11.75 3.75C11.1714 3.75 10.75 3.16304 10.75 2.5ZM14.5 1.25C13.9214 1.25 13.5 1.83696 13.5 2.5C13.5 3.16304 13.9214 3.75 14.5 3.75C15.0786 3.75 15.5 3.16304 15.5 2.5C15.5 1.83696 15.0786 1.25 14.5 1.25ZM1.25 5.25C1.25 4.67143 1.83696 4.25 2.5 4.25C3.16304 4.25 3.75 4.67143 3.75 5.25C3.75 5.82857 3.16304 6.25 2.5 6.25C1.83696 6.25 1.25 5.82857 1.25 5.25ZM5.25 4.25C4.67143 4.25 4.25 4.67143 4.25 5.25C4.25 5.82857 4.67143 6.25 5.25 6.25C5.82857 6.25 6.25 5.82857 6.25 5.25ZM7 5.25C7 4.67143 7.42143 4.25 8 4.25C8.57857 4.25 9 4.67143 9 5.25C9 5.82857 8.57857 6.25 8 6.25C7.42143 6.25 7 5.82857 7 5.25ZM11.75 4.25C11.1714 4.25 10.75 4.67143 10.75 5.25C10.75 5.82857 11.1714 6.25 11.75 6.25C12.3286 6.25 12.75 7.67143 12.75 7.67143 12.3286 7.67143 11.75 7.67143 11.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM13.5 5.25C13.5 4.67143 13.9214 4.25 14.5 4.25C15.0786 4.25 15.5 4.67143 15.5 5.25C15.5 5.82857 15.0786 6.25 14.5 6.25C13.9214 6.25 13.5 5.82857 13.5 5.25ZM2.5 7.25C1.83696 7.25 1.25 7.67143 1.25 8.25C1.25 8.82857 1.83696 9.25 2.5 9.25C3.16304 9.25 3.75 8.82857 3.75 8.25C3.75 7.67143 3.16304 7.25 2.5 7.25ZM4.25 8.25C4.25 7.67143 4.67143 7.25 5.25 7.25C5.82857 7.25 6.25 7.67143 6.25 8.25C6.25 8.82857 5.82857 9.25 5.25 9.25C4.67143 9.25 4.25 8.82857 4.25 8.25ZM8 7.25C7.42143 7.25 7 7.67143 7 8.25C7 8.82857 7.42143 9.25 8 9.25C8.57857 9.25 9 8.82857 9 8.25C9 7.67143 8.57857 7.25 8 7.25ZM10.75 8.25C10.75 7.67143 11.1714 7.25 11.75 7.25C12.3286 7.25 12.75 7.67143 12.75 8.25C12.75 8.82857 12.3286 9.25 11.75 9.25C11.1714 9.25 10.75 8.82857 10.75 8.25ZM14.5 7.25C13.9214 7.25 13.5 7.67143 13.5 8.25C13.5 8.82857 13.9214 9.25 14.5 9.25C15.0786 9.25 15.5 8.82857 15.5 8.25C15.5 7.67143 15.0786 7.25 14.5 7.25Z" fill="currentColor"/>
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.25 2.5C4.25 1.83696 4.67143 1.25 5.25 1.25C5.82857 1.25 6.25 1.83696 6.25 2.5C6.25 3.16304 5.82857 3.75 5.25 3.75C4.67143 3.75 4.25 3.16304 4.25 2.5ZM2.5 3.75C1.92143 3.75 1.5 3.16304 1.5 2.5C1.5 1.83696 1.92143 1.25 2.5 1.25C3.07857 1.25 3.5 1.83696 3.5 2.5C3.5 3.16304 3.07857 3.75 2.5 3.75ZM8 1.25C7.42143 1.25 7 1.83696 7 2.5C7 3.16304 7.42143 3.75 8 3.75C8.57857 3.75 9 3.16304 9 2.5C9 1.83696 8.57857 1.25 8 1.25ZM10.75 2.5C10.75 1.83696 11.1714 1.25 11.75 1.25C12.3286 1.25 12.75 1.83696 12.75 2.5C12.75 3.16304 12.3286 3.75 11.75 3.75C11.1714 3.75 10.75 3.16304 10.75 2.5ZM14.5 1.25C13.9214 1.25 13.5 1.83696 13.5 2.5C13.5 3.16304 13.9214 3.75 14.5 3.75C15.0786 3.75 15.5 3.16304 15.5 2.5C15.5 1.83696 15.0786 1.25 14.5 1.25ZM1.25 5.25C1.25 4.67143 1.83696 4.25 2.5 4.25C3.16304 4.25 3.75 4.67143 3.75 5.25C3.75 5.82857 3.16304 6.25 2.5 6.25C1.83696 6.25 1.25 5.82857 1.25 5.25ZM5.25 4.25C4.67143 4.25 4.25 4.67143 4.25 5.25C4.25 5.82857 4.25 6.25 4.25 6.25C5.82857 6.25 6.25 5.82857 6.25 5.25ZM7 5.25C7 4.67143 7.42143 4.25 8 4.25C8.57857 4.25 9 4.67143 9 5.25C9 5.82857 8.57857 6.25 8 6.25C7.42143 6.25 7 5.82857 7 5.25ZM11.75 4.25C11.1714 4.25 10.75 4.67143 10.75 5.25C10.75 5.82857 11.1714 6.25 11.75 6.25C12.3286 6.25 12.75 7.67143 12.75 7.67143 12.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM13.5 5.25C13.5 4.67143 13.5 4.25 14.5 4.25C15.0786 4.25 15.5 4.67143 15.5 5.25C15.5 5.82857 15.0786 6.25 14.5 6.25C13.9214 6.25 13.5 5.82857 13.5 5.25ZM2.5 7.25C1.83696 7.25 1.25 7.67143 1.25 8.25C1.25 8.82857 1.83696 9.25 2.5 9.25C3.16304 9.25 3.75 8.82857 3.75 8.25C3.75 7.67143 3.16304 7.25 2.5 7.25ZM4.25 8.25C4.25 7.67143 4.67143 7.25 5.25 7.25C5.82857 7.25 6.25 7.67143 6.25 8.25C6.25 8.82857 5.82857 9.25 5.25 9.25C4.67143 9.25 4.25 8.82857 4.25 8.25ZM8 7.25C7.42143 7.25 7 7.67143 7 8.25C7 8.82857 7.42143 9.25 8 9.25C8.57857 9.25 9 8.82857 9 8.25C9 7.67143 8.57857 7.25 8 7.25ZM10.75 8.25C10.75 7.67143 11.1714 7.25 11.75 7.25C12.3286 7.25 12.75 7.67143 12.75 7.67143 12.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM14.5 7.25C13.9214 7.25 13.5 7.67143 13.5 8.25C13.5 8.82857 13.9214 9.25 14.5 9.25C15.0786 9.25 15.5 8.82857 15.5 8.25C15.5 7.67143 15.0786 7.25 14.5 7.25Z" fill="currentColor"/>
                     </svg>
                     Sponsor on GitHub
                 </a>
@@ -601,23 +574,30 @@ nav a:hover {
                             <input type="text" id="name" name="name" value="" autofocus>
                         </div>
                         <div class="form-group">
-                            <label for="keywords">Keywords:</label>
-                            <textarea id="keywords" name="keywords" rows="6"></textarea>
+                            <label for="keywords">Keywords / Queries: (one per line)</label>
+                            <textarea id="keywords" name="keywords" rows="5"></textarea>
                         </div>
                         <div class="form-group">
-                            <label for="lang">Language:</label>
+                            <label for="input_file">Or upload Queries Input File: <span class="badge-tag badge-flag">-input</span></label>
+                            <input type="file" id="input_file" accept=".txt,.csv" onchange="handleInputFileUpload(event)">
+                            <p class="text-muted"><small>Load search queries directly from a local text file.</small></p>
+                        </div>
+                        <div class="form-group">
+                            <label for="lang">Language: <span class="badge-tag badge-flag">-lang</span></label>
                             <input type="text" id="lang" name="lang" value="en">
                         </div>
                     </fieldset>
 
-                    <!-- Location Settings -->
+                    <!-- Location Settings & Geo / Grid -->
                     <details class="expandable-section">
-                        <summary>Location Settings</summary>
+                        <summary>Location, Geo Coordinates & Grid Scrape</summary>
                         <fieldset>
                             <div class="form-group">
-                                <label for="zoom">Zoom (0-21):</label>
-                                <input type="number" id="zoom" name="zoom" value="15" min="0" max="21">
+                                <label for="geo">Geo Coordinates (Lat,Lon): <span class="badge-tag badge-flag">-geo</span></label>
+                                <input type="text" id="geo" placeholder="e.g. 45.4415,10.9972" onchange="parseGeoInput(this.value)">
+                                <p class="text-muted"><small>Format: latitude,longitude</small></p>
                             </div>
+
                             <div class="grid-2">
                                 <div class="form-group">
                                     <label for="latitude">Latitude:</label>
@@ -628,12 +608,37 @@ nav a:hover {
                                     <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="0">
                                 </div>
                             </div>
+
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="zoom">Zoom (0-21): <span class="badge-tag badge-flag">-zoom</span></label>
+                                    <input type="number" id="zoom" name="zoom" value="15" min="0" max="21">
+                                </div>
+                                <div class="form-group">
+                                    <label for="radius">Radius (meters): <span class="badge-tag badge-flag">-radius</span></label>
+                                    <input type="number" id="radius" name="radius" value="10000">
+                                </div>
+                            </div>
+
+                            <hr style="border:none; border-top:1px solid #eee; margin:14px 0;">
+
+                            <div class="form-group">
+                                <label for="grid_bbox">Grid Bounding Box: <span class="badge-tag badge-flag">-grid-bbox</span></label>
+                                <input type="text" id="grid_bbox" placeholder="minLat,minLon,maxLat,maxLon (e.g. 45.40,10.90,45.50,11.00)">
+                                <p class="text-muted"><small>Divides an area into smaller cells for thorough scraping.</small></p>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="grid_cell">Grid Cell Size in km: <span class="badge-tag badge-flag">-grid-cell</span></label>
+                                <input type="number" id="grid_cell" value="1.0" step="0.1" min="0.1">
+                                <p class="text-muted"><small>Cell step size in km (default: 1.0 km)</small></p>
+                            </div>
                         </fieldset>
                     </details>
 
                     <!-- Advanced Options (email, extra reviews, depth, radius, fastmode) -->
                     <details class="expandable-section" open>
-                        <summary>Advanced Options</summary>
+                        <summary>Advanced Options & Crawler Behavior</summary>
                         <fieldset>
                             <div class="form-group checkbox">
                                 <input type="checkbox" id="email" name="email">
@@ -641,7 +646,7 @@ nav a:hover {
                             </div>
                             <div class="form-group checkbox">
                                 <input type="checkbox" id="extra_reviews" name="extra_reviews">
-                                <label for="extra_reviews"><strong>Collect extra reviews</strong> <span class="badge-tag badge-flag">-extra-reviews</span></label>
+                                <label for="extra_reviews"><strong>Collect extra reviews</strong> (~300 reviews) <span class="badge-tag badge-flag">-extra-reviews</span></label>
                             </div>
                             <div class="form-group checkbox">
                                 <input type="checkbox" id="fastmode" name="fastmode">
@@ -650,18 +655,13 @@ nav a:hover {
 
                             <div class="grid-2">
                                 <div class="form-group">
-                                    <label for="radius">Radius (meters):</label>
-                                    <input type="number" id="radius" name="radius" value="10000">
-                                </div>
-                                <div class="form-group">
-                                    <label for="depth">Depth (scrolls):</label>
+                                    <label for="depth">Depth (scrolls): <span class="badge-tag badge-flag">-depth</span></label>
                                     <input type="number" step="1" id="depth" name="depth" value="10">
                                 </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="maxtime">Max job time:</label>
-                                <input type="text" id="maxtime" name="maxtime" value="10m">
+                                <div class="form-group">
+                                    <label for="maxtime">Max job time:</label>
+                                    <input type="text" id="maxtime" name="maxtime" value="10m">
+                                </div>
                             </div>
                         </fieldset>
                     </details>
@@ -675,22 +675,21 @@ nav a:hover {
                                 <select id="concurrency">
                                     <option value="1">1 worker (default)</option>
                                     <option value="2">2 workers</option>
-                                    <option value="4">4 workers (recommended)</option>
+                                    <option value="4" selected>4 workers (recommended)</option>
                                     <option value="8">8 workers</option>
                                     <option value="16">16 workers</option>
                                 </select>
-                                <p class="text-muted"><small>Sets the parallel crawl workers.</small></p>
                             </div>
 
                             <div class="grid-2">
                                 <div class="form-group">
                                     <label for="pages_per_browser">Pages per browser:</label>
-                                    <input type="number" id="pages_per_browser" value="1" min="1" max="16">
+                                    <input type="number" id="pages_per_browser" value="4" min="1" max="16">
                                     <p class="text-muted"><small>-pages-per-browser</small></p>
                                 </div>
                                 <div class="form-group">
                                     <label for="browser_pool_size">Browser pool size:</label>
-                                    <input type="number" id="browser_pool_size" value="0" min="0" max="32">
+                                    <input type="number" id="browser_pool_size" value="2" min="0" max="32">
                                     <p class="text-muted"><small>-browser-pool-size (0=auto)</small></p>
                                 </div>
                             </div>
@@ -709,7 +708,19 @@ nav a:hover {
                             <div class="form-group">
                                 <label for="proxy_file">Upload proxies credentials file: <span class="badge-tag badge-flag">-proxies-file</span></label>
                                 <input type="file" id="proxy_file" accept=".txt,.csv" onchange="handleProxyFileUpload(event)">
-                                <p class="text-muted"><small>Load proxies directly from a local text file into the list.</small></p>
+                                <p class="text-muted"><small>Load proxies directly from a local text file.</small></p>
+                            </div>
+                        </fieldset>
+                    </details>
+
+                    <!-- LeadsDB Integration -->
+                    <details class="expandable-section">
+                        <summary>Direct Export & Integrations</summary>
+                        <fieldset>
+                            <div class="form-group">
+                                <label for="leadsdb_api_key">LeadsDB API Key: <span class="badge-tag badge-flag">-leadsdb-api-key</span></label>
+                                <input type="text" id="leadsdb_api_key" placeholder="Enter key from getleadsdb.com">
+                                <p class="text-muted"><small>Saved in browser for one-click export from the results table.</small></p>
                             </div>
                         </fieldset>
                     </details>
@@ -756,7 +767,50 @@ nav a:hover {
         el.style.display = msg ? 'block' : 'none';
     }
 
-    // ---- Proxy file upload handler ----
+    // ---- LeadsDB Key Storage ----
+    window.addEventListener('DOMContentLoaded', () => {
+        const savedKey = localStorage.getItem('leadsdb_api_key');
+        if (savedKey) {
+            document.getElementById('leadsdb_api_key').value = savedKey;
+        }
+        document.getElementById('leadsdb_api_key').addEventListener('input', (e) => {
+            localStorage.setItem('leadsdb_api_key', e.target.value.trim());
+        });
+    });
+
+    // ---- Parse Geo string "lat,lon" ----
+    function parseGeoInput(val) {
+        if (!val) return;
+        const parts = val.split(',').map(s => s.trim());
+        if (parts.length >= 2) {
+            const lat = parseFloat(parts[0]);
+            const lon = parseFloat(parts[1]);
+            if (!isNaN(lat) && !isNaN(lon)) {
+                document.getElementById('latitude').value = lat;
+                document.getElementById('longitude').value = lon;
+            }
+        }
+    }
+
+    // ---- Input File Upload Handler (-input) ----
+    function handleInputFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            const current = document.getElementById('keywords').value.trim();
+            const newQueries = content.trim();
+            if (current) {
+                document.getElementById('keywords').value = current + '\\n' + newQueries;
+            } else {
+                document.getElementById('keywords').value = newQueries;
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ---- Proxy File Upload Handler (-proxies-file) ----
     function handleProxyFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -774,7 +828,7 @@ nav a:hover {
         reader.readAsText(file);
     }
 
-    // ---- Resume job handler ----
+    // ---- Resume Job Handler (-resume) ----
     function resumeJob(job) {
         if (!job || !job.Data) return;
         const d = job.Data;
@@ -784,6 +838,7 @@ nav a:hover {
         if (d.zoom !== undefined) document.getElementById('zoom').value = d.zoom;
         if (d.lat) document.getElementById('latitude').value = d.lat;
         if (d.lon) document.getElementById('longitude').value = d.lon;
+        if (d.lat && d.lon) document.getElementById('geo').value = d.lat + ',' + d.lon;
         if (d.radius) document.getElementById('radius').value = d.radius;
         if (d.depth) document.getElementById('depth').value = d.depth;
         document.getElementById('email').checked = !!d.email;
@@ -794,6 +849,31 @@ nav a:hover {
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
         showError('Job parameters loaded for resume. Review and click "Start Scraping" to resume.');
+    }
+
+    // ---- Export to LeadsDB Handler (-leadsdb-api-key) ----
+    async function exportToLeadsDB(jobId) {
+        const apiKey = document.getElementById('leadsdb_api_key').value.trim() || localStorage.getItem('leadsdb_api_key');
+        if (!apiKey) {
+            alert('Please enter your LeadsDB API Key under "Direct Export & Integrations" or get one at getleadsdb.com');
+            return;
+        }
+        if (!confirm('Export this dataset to LeadsDB using your API Key?')) return;
+        try {
+            const res = await fetch('/api/export/leadsdb/' + jobId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+            const result = await res.json();
+            if (res.ok) {
+                alert('Successfully exported ' + (result.count || 0) + ' leads to LeadsDB!');
+            } else {
+                alert('Error exporting to LeadsDB: ' + (result.error || 'Server error'));
+            }
+        } catch (err) {
+            alert('Request error: ' + err.message);
+        }
     }
 
     // ---- Parse maxtime string (e.g. "10m", "1h", "90s") to seconds integer ----
@@ -832,14 +912,22 @@ nav a:hover {
         const extra_reviews = document.getElementById('extra_reviews').checked;
         const maxtimeStr = document.getElementById('maxtime').value.trim() || '10m';
         const maxtime = parseMaxTime(maxtimeStr);
-        const concurrency = parseInt(document.getElementById('concurrency').value) || 1;
-        const pages_per_browser = parseInt(document.getElementById('pages_per_browser').value) || 1;
-        const browser_pool_size = parseInt(document.getElementById('browser_pool_size').value) || 0;
+        const concurrency = parseInt(document.getElementById('concurrency').value) || 4;
+        const pages_per_browser = parseInt(document.getElementById('pages_per_browser').value) || 4;
+        const browser_pool_size = parseInt(document.getElementById('browser_pool_size').value) || 2;
+        const grid_bbox = document.getElementById('grid_bbox').value.trim();
+        const grid_cell = parseFloat(document.getElementById('grid_cell').value) || 1.0;
         const rawProxies = document.getElementById('proxies').value.trim();
 
         if (!name) { showError('Job Name is required.'); btn.disabled = false; btn.textContent = 'Start Scraping'; spinner.classList.remove('active'); return; }
         const keywords = rawKeywords.split('\\n').map(s => s.trim()).filter(s => s.length > 0);
         if (keywords.length === 0) { showError('At least one keyword is required.'); btn.disabled = false; btn.textContent = 'Start Scraping'; spinner.classList.remove('active'); return; }
+
+        if (fastmode && grid_bbox) {
+            showError('Notice: -fast-mode cannot be used together with -grid-bbox.');
+            btn.disabled = false; btn.textContent = 'Start Scraping'; spinner.classList.remove('active');
+            return;
+        }
 
         const proxies = rawProxies ? rawProxies.split('\\n').map(p => p.trim()).filter(p => p.length > 0) : [];
 
@@ -859,6 +947,8 @@ nav a:hover {
             concurrency,
             pages_per_browser,
             browser_pool_size,
+            grid_bbox: grid_bbox || null,
+            grid_cell,
             proxies
         };
 
@@ -939,10 +1029,9 @@ nav a:hover {
                 actionsHtml += `<button class="view-button" onclick="openMapModal('${j.ID}', '${name}')">View</button>`;
                 actionsHtml += `<a href="/download/${j.ID}?format=csv" class="download-button" title="Download CSV">CSV</a>`;
                 actionsHtml += `<a href="/download/${j.ID}?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
+                actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.ID}')" title="Export to LeadsDB (-leadsdb-api-key)">LeadsDB</button>`;
             }
-            if (status === 'failed' || status === 'error' || status === 'working') {
-                actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.ID}')" title="Resume/Restart this job parameters">Resume</button>`;
-            }
+            actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.ID}')" title="Resume/Restart this job parameters (-resume)">Resume</button>`;
             actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.ID}')">Delete</button>`;
             actionsHtml += '</div>';
 
@@ -1092,6 +1181,28 @@ nav a:hover {
 </html>
 """
 
+def generate_grid_points(bbox_str, cell_km=1.0):
+    """Parses 'minLat,minLon,maxLat,maxLon' and returns list of (lat, lon) coordinates."""
+    try:
+        parts = [float(p.strip()) for p in bbox_str.split(",")]
+        if len(parts) != 4:
+            return []
+        min_lat, min_lon, max_lat, max_lon = parts
+        points = []
+        lat_step = cell_km / 111.0
+        lat = min_lat
+        while lat <= max_lat:
+            cos_val = math.cos(math.radians(lat))
+            lon_step = cell_km / (111.0 * (cos_val if abs(cos_val) > 0.01 else 0.01))
+            lon = min_lon
+            while lon <= max_lon:
+                points.append((round(lat, 6), round(lon, 6)))
+                lon += lon_step
+            lat += lat_step
+        return points
+    except Exception:
+        return []
+
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
@@ -1111,31 +1222,51 @@ def create_job():
     try:
         payload = request.json or {}
 
-        # Backend expects these core parameters
-        cleaned_payload = {
-            "name": payload.get("name"),
-            "keywords": payload.get("keywords", []),
-            "lang": payload.get("lang", "en"),
-            "zoom": int(payload.get("zoom", 15)),
-            "depth": int(payload.get("depth", 10)),
-            "radius": int(payload.get("radius", 10000)),
-            "max_time": int(payload.get("max_time", 600)),
-            "email": bool(payload.get("email", False)),
-            "fast_mode": bool(payload.get("fast_mode", False)),
-            "extra_reviews": bool(payload.get("extra_reviews", False)),
-            "lat": str(payload.get("lat") or ""),
-            "lon": str(payload.get("lon") or ""),
-            "proxies": payload.get("proxies", [])
-        }
+        # Check for grid-bbox option
+        grid_bbox = payload.get("grid_bbox")
+        grid_cell = float(payload.get("grid_cell") or 1.0)
 
-        # Optional concurrency/pool parameters passed along
-        if "concurrency" in payload:
-            cleaned_payload["concurrency"] = int(payload["concurrency"])
-        if "browser_pool_size" in payload:
-            cleaned_payload["browser_pool_size"] = int(payload["browser_pool_size"])
-        if "pages_per_browser" in payload:
-            cleaned_payload["pages_per_browser"] = int(payload["pages_per_browser"])
+        # Base payload builder
+        def build_req_payload(name, lat, lon):
+            return {
+                "name": name,
+                "keywords": payload.get("keywords", []),
+                "lang": payload.get("lang", "en"),
+                "zoom": int(payload.get("zoom", 15)),
+                "depth": int(payload.get("depth", 10)),
+                "radius": int(payload.get("radius", 10000)),
+                "max_time": int(payload.get("max_time", 600)),
+                "email": bool(payload.get("email", False)),
+                "fast_mode": bool(payload.get("fast_mode", False)),
+                "extra_reviews": bool(payload.get("extra_reviews", False)),
+                "lat": str(lat or ""),
+                "lon": str(lon or ""),
+                "proxies": payload.get("proxies", [])
+            }
 
+        # If grid-bbox is set, generate grid sub-jobs
+        if grid_bbox:
+            grid_points = generate_grid_points(grid_bbox, grid_cell)
+            if not grid_points:
+                return Response("Invalid grid-bbox format. Expected minLat,minLon,maxLat,maxLon", status=400)
+
+            created_ids = []
+            base_name = payload.get("name", "Grid Job")
+            for idx, (g_lat, g_lon) in enumerate(grid_points[:30], start=1):
+                cell_payload = build_req_payload(f"{base_name} [Cell {idx}/{len(grid_points)}]", g_lat, g_lon)
+                req_data = json.dumps(cell_payload).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{BACKEND_URL}/api/v1/jobs",
+                    data=req_data,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req) as resp:
+                    data = json.loads(resp.read().decode())
+                    created_ids.append(data.get("id"))
+            return jsonify({"status": "created", "grid_cells": len(created_ids), "ids": created_ids}), 201
+
+        # Standard Single Job
+        cleaned_payload = build_req_payload(payload.get("name"), payload.get("lat"), payload.get("lon"))
         req_data = json.dumps(cleaned_payload).encode("utf-8")
         req = urllib.request.Request(
             f"{BACKEND_URL}/api/v1/jobs",
@@ -1145,6 +1276,7 @@ def create_job():
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             return jsonify(data), 201
+
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8")
         return Response(err_msg, status=e.code)
@@ -1200,6 +1332,44 @@ def preview_job(job_id):
         return jsonify({"total": len(rows), "sample": rows})
     except Exception as e:
         return jsonify({"error": str(e), "sample": []}), 500
+
+@app.route("/api/export/leadsdb/<job_id>", methods=["POST"])
+def export_leadsdb(job_id):
+    try:
+        data = request.json or {}
+        api_key = data.get("api_key")
+        if not api_key:
+            return jsonify({"error": "Missing LeadsDB API key"}), 400
+
+        # Fetch CSV from scraper
+        req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
+        with urllib.request.urlopen(req) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+
+        reader = csv.DictReader(io.StringIO(text))
+        items = list(reader)
+
+        # Forward items to LeadsDB API
+        leadsdb_url = "https://api.getleadsdb.com/v1/leads"
+        leads_req = urllib.request.Request(
+            leadsdb_url,
+            data=json.dumps({"leads": items}).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+        )
+        try:
+            with urllib.request.urlopen(leads_req) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+                return jsonify({"status": "exported", "count": len(items), "response": resp_data})
+        except urllib.error.HTTPError as he:
+            # Return remote status or mock success if test key
+            err_body = he.read().decode("utf-8", errors="replace")
+            return jsonify({"error": f"LeadsDB API error ({he.code}): {err_body}", "count": len(items)}), he.code
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
 def delete_job(job_id):
