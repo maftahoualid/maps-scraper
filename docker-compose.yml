@@ -1,0 +1,20 @@
+services:
+  gmaps-backend:
+    image: gosom/google-maps-scraper:latest
+    container_name: gmaps-backend
+    restart: unless-stopped
+    command: ["-web", "-data-folder", "/gmapsdata"]
+    volumes:
+      - ./data:/gmapsdata
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  gmaps-ui:
+    build: .
+    container_name: gmaps-ui
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - BACKEND_URL=http://127.0.0.1:8081
+    depends_on:
+      - gmaps-backend

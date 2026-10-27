@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+DATA_DIR="$HOME/gmaps-webdata"
+PORT=8080
+
+case "$1" in
+  start)
+    mkdir -p "$DATA_DIR"
+    # Avvia backend engine
+    if ! docker ps --format '{{.Names}}' | grep -q "^gmaps-backend$"; then
+      if docker ps -a --format '{{.Names}}' | grep -q "^gmaps-backend$"; then
+        docker start gmaps-backend > /dev/null
+      else
+        docker run -d --name gmaps-backend -p 127.0.0.1:8081:8080 -v "${DATA_DIR}:/gmapsdata" --restart unless-stopped gosom/google-maps-scraper -web -data-folder /gmapsdata > /dev/null
+      fi
+    fi
+
+    # Avvia frontend UI
+    if ! docker ps --format '{{.Names}}' | grep -q "^gmaps-ui$"; then
+      if docker ps -a --format '{{.Names}}' | grep -q "^gmaps-ui$"; then
+        docker start gmaps-ui > /dev/null
+      else
+        docker run -d --name gmaps-ui --network host --restart unless-stopped -e BACKEND_URL=http://127.0.0.1:8081 gmaps-ui:latest > /dev/null
+      fi
+    fi
+    echo "✅ Google Maps Scraper attivo!"
+    echo "👉 Apri il browser su: http://localhost:8080"
+    ;;
+  stop)
+    echo "Arresto di Google Maps Scraper..."
+    docker stop gmaps-ui gmaps-backend > /dev/null 2>&1 || true
+    echo "🛑 Servizio arrestato con successo."
+    ;;
+  status)
+    if docker ps --format '{{.Names}}' | grep -q "^gmaps-ui$"; then
+      echo "🟢 In esecuzione su: http://localhost:8080"
+    else
+      echo "🔴 Fermo (non in esecuzione)"
+    fi
+    ;;
+  logs)
+    docker logs -f gmaps-backend
+    ;;
+  *)
+    echo "Comandi disponibili:"
+    echo "  gmaps start   - Avvia la WebUI"
+    echo "  gmaps stop    - Ferma la WebUI"
+    echo "  gmaps status  - Verifica se è attivo"
+    echo "  gmaps logs    - Mostra i log del motore di scraping in tempo reale"
+    ;;
+esac
