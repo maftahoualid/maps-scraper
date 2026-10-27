@@ -3,7 +3,7 @@ services:
     image: gosom/google-maps-scraper:latest
     container_name: gmaps-backend
     restart: unless-stopped
-    command: ["-web", "-data-folder", "/gmapsdata"]
+    command: ["-web", "-data-folder", "/gmapsdata", "-c", "4", "-pages-per-browser", "4", "-browser-pool-size", "2"]
     volumes:
       - ./data:/gmapsdata
     ports:

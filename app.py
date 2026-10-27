@@ -104,7 +104,7 @@ main {
 }
 
 .sidebar {
-    width: 320px;
+    width: 360px;
     background-color: var(--color-surface);
     padding: 24px;
     overflow-y: auto;
@@ -122,7 +122,7 @@ main {
 form {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
 }
 
 fieldset {
@@ -133,29 +133,38 @@ fieldset {
 
 legend {
     font-weight: 500;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     color: var(--color-primary);
 }
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
 label {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     color: var(--color-text-light);
+    font-size: 13.5px;
 }
 
 input[type="text"],
 input[type="number"],
-textarea {
+textarea,
+select {
     width: 100%;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border: 1px solid var(--color-border);
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 13.5px;
     box-sizing: border-box;
+    background: #fff;
+    color: var(--color-text);
+}
+
+input[type="file"] {
+    font-size: 12px;
+    color: var(--color-text-light);
 }
 
 button {
@@ -190,7 +199,7 @@ table {
 
 th, td {
     text-align: left;
-    padding: 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--color-border);
 }
 
@@ -233,8 +242,8 @@ th {
     color: white;
 }
 
-.download-button, .delete-button, .view-button {
-    padding: 6px 12px;
+.download-button, .delete-button, .view-button, .resume-button {
+    padding: 5px 10px;
     border-radius: 4px;
     font-size: 12px;
     text-decoration: none;
@@ -249,29 +258,25 @@ th {
 .download-button {
     background-color: var(--color-success);
 }
-
-.download-button:hover {
-    background-color: #388e3c;
-}
+.download-button:hover { background-color: #388e3c; }
 
 .view-button {
     background-color: #2c7be5;
 }
+.view-button:hover { background-color: #1a68d1; }
 
-.view-button:hover {
-    background-color: #1a68d1;
+.resume-button {
+    background-color: #d97706;
 }
+.resume-button:hover { background-color: #b45309; }
 
 .delete-button {
     background-color: var(--color-error);
 }
-
-.delete-button:hover {
-    background-color: #c62828;
-}
+.delete-button:hover { background-color: #c62828; }
 
 .json-button {
-    padding: 6px 12px;
+    padding: 5px 10px;
     border-radius: 4px;
     font-size: 12px;
     text-decoration: none;
@@ -283,10 +288,7 @@ th {
     border: none;
     margin-right: 4px;
 }
-
-.json-button:hover {
-    background-color: #6d28d9;
-}
+.json-button:hover { background-color: #6d28d9; }
 
 .error-message {
     display: none;
@@ -305,12 +307,14 @@ th {
 
 .expandable-section summary {
     cursor: pointer;
-    padding: 12px 16px;
+    padding: 10px 14px;
     background-color: var(--color-background);
     border: 1px solid var(--color-border);
     border-radius: 4px;
     color: var(--color-text);
     list-style: none;
+    font-size: 13.5px;
+    font-weight: 500;
 }
 
 .expandable-section summary::-webkit-details-marker {
@@ -327,24 +331,19 @@ th {
     border: 1px solid var(--color-border);
     border-top: none;
     border-radius: 0 0 4px 4px;
-    padding: 16px;
+    padding: 14px;
+    background: #fff;
 }
 
 @media (max-width: 768px) {
-    main {
-        flex-direction: column;
-    }
-
+    main { flex-direction: column; }
     .sidebar {
         width: 100%;
         border-right: none;
         border-bottom: 1px solid var(--color-border);
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     }
-
-    .content {
-        padding: 20px;
-    }
+    .content { padding: 20px; }
 }
 
 .sponsor-section {
@@ -400,13 +399,8 @@ th {
     transition: background-color 0.2s;
 }
 
-.sponsor-button:hover {
-    background-color: var(--color-sponsor-hover);
-}
-
-.sponsor-button svg {
-    margin-right: 8px;
-}
+.sponsor-button:hover { background-color: var(--color-sponsor-hover); }
+.sponsor-button svg { margin-right: 8px; }
 
 nav {
     margin-bottom: 16px;
@@ -416,9 +410,9 @@ nav {
 nav a {
     color: white;
     text-decoration: none;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 500;
-    padding: 8px 16px;
+    padding: 6px 14px;
     background-color: var(--color-primary);
     border: 1px solid var(--color-primary);
     border-radius: 4px;
@@ -435,8 +429,8 @@ nav a:hover {
 /* Spinner */
 .spinner {
     display: none;
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     border: 3px solid #ccc;
     border-top-color: var(--color-primary);
     border-radius: 50%;
@@ -444,13 +438,9 @@ nav a:hover {
     margin-bottom: 12px;
 }
 
-.spinner.active {
-    display: inline-block;
-}
+.spinner.active { display: inline-block; }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Map modal */
 .map-modal {
@@ -481,10 +471,7 @@ nav a:hover {
     border-bottom: 1px solid #e0e0e0;
 }
 
-.map-modal-header h2 {
-    margin: 0;
-    font-size: 1.1rem;
-}
+.map-modal-header h2 { margin: 0; font-size: 1.1rem; }
 
 .map-modal-close {
     background: none;
@@ -496,21 +483,11 @@ nav a:hover {
     padding: 0;
 }
 
-.map-modal-close:hover {
-    background: none;
-    color: #222;
-}
+.map-modal-close:hover { background: none; color: #222; }
 
-.map-modal-body {
-    flex: 1;
-    display: flex;
-    min-height: 0;
-}
+.map-modal-body { flex: 1; display: flex; min-height: 0; }
 
-#job-map {
-    flex: 3;
-    height: 100%;
-}
+#job-map { flex: 3; height: 100%; }
 
 #job-places-list {
     flex: 1;
@@ -526,60 +503,49 @@ nav a:hover {
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
 }
+.place-item:hover { background: #f5f8ff; }
+.place-title { font-weight: 600; font-size: 13.5px; }
+.place-address { font-size: 0.8rem; color: #666; }
+.place-rating { font-size: 0.8rem; color: #d98300; }
 
-.place-item:hover {
-    background: #f5f8ff;
-}
-
-.place-title {
-    font-weight: 600;
-}
-
-.place-address {
-    font-size: 0.85rem;
-    color: #666;
-}
-
-.place-rating {
-    font-size: 0.85rem;
-    color: #d98300;
-}
-
-.map-loading, .map-empty, .map-error {
-    padding: 12px;
-    color: #666;
-}
-
+.map-loading, .map-empty, .map-error { padding: 12px; color: #666; }
 .map-error { color: #c0392b; }
 
 .form-group.checkbox {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
+    margin-bottom: 12px;
 }
 
 .form-group.checkbox label {
     margin-bottom: 0;
+    cursor: pointer;
 }
 
 .form-group.checkbox input[type="checkbox"] {
     width: 16px;
     height: 16px;
+    margin-top: 2px;
+    cursor: pointer;
 }
 
-.badge-cli {
+.badge-tag {
     font-size: 10px;
-    background: #fef3c7;
-    color: #b45309;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 3px;
     font-weight: 700;
     margin-left: 4px;
 }
 
+.badge-flag { background: #f1f5f9; color: #475569; }
+.badge-active { background: #dbeafe; color: #1e40af; }
+
 .text-muted {
     font-size: 12px;
     color: var(--color-text-light);
+    line-height: 1.4;
+    margin-top: 4px;
 }
 
 .actions-cell {
@@ -587,6 +553,12 @@ nav a:hover {
     align-items: center;
     gap: 4px;
     flex-wrap: wrap;
+}
+
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
 }
     </style>
 </head>
@@ -607,18 +579,15 @@ nav a:hover {
                 </a>
             </div>
             <div id="sponsor-section" class="sponsor-section">
-    <button class="sponsor-close" onclick="hideSponsor()">
-        ×
-    </button>
-    <p class="sponsor-text">Support the ongoing maintenance and development of this project by becoming a sponsor. Your contribution helps ensure the tool's continued improvement and reliability.</p>
-    <a href="https://github.com/sponsors/gosom" class="sponsor-button" target="_blank" rel="noopener noreferrer">
-        <svg height="16" width="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M4.25 2.5C4.25 1.83696 4.67143 1.25 5.25 1.25C5.82857 1.25 6.25 1.83696 6.25 2.5C6.25 3.16304 5.82857 3.75 5.25 3.75C4.67143 3.75 4.25 3.16304 4.25 2.5ZM2.5 3.75C1.92143 3.75 1.5 3.16304 1.5 2.5C1.5 1.83696 1.92143 1.25 2.5 1.25C3.07857 1.25 3.5 1.83696 3.5 2.5C3.5 3.16304 3.07857 3.75 2.5 3.75ZM8 1.25C7.42143 1.25 7 1.83696 7 2.5C7 3.16304 7.42143 3.75 8 3.75C8.57857 3.75 9 3.16304 9 2.5C9 1.83696 8.57857 1.25 8 1.25ZM10.75 2.5C10.75 1.83696 11.1714 1.25 11.75 1.25C12.3286 1.25 12.75 1.83696 12.75 2.5C12.75 3.16304 12.3286 3.75 11.75 3.75C11.1714 3.75 10.75 3.16304 10.75 2.5ZM14.5 1.25C13.9214 1.25 13.5 1.83696 13.5 2.5C13.5 3.16304 13.9214 3.75 14.5 3.75C15.0786 3.75 15.5 3.16304 15.5 2.5C15.5 1.83696 15.0786 1.25 14.5 1.25ZM1.25 5.25C1.25 4.67143 1.83696 4.25 2.5 4.25C3.16304 4.25 3.75 4.67143 3.75 5.25C3.75 5.82857 3.16304 6.25 2.5 6.25C1.83696 6.25 1.25 5.82857 1.25 5.25ZM5.25 4.25C4.67143 4.25 4.25 4.67143 4.25 5.25C4.25 5.82857 4.67143 6.25 5.25 6.25C5.82857 6.25 6.25 5.82857 6.25 5.25C6.25 4.67143 5.82857 4.25 5.25 4.25ZM7 5.25C7 4.67143 7.42143 4.25 8 4.25C8.57857 4.25 9 4.67143 9 5.25C9 5.82857 8.57857 6.25 8 6.25C7.42143 6.25 7 5.82857 7 5.25ZM11.75 4.25C11.1714 4.25 10.75 4.67143 10.75 5.25C10.75 5.82857 11.1714 6.25 11.75 6.25C12.3286 6.25 12.75 5.82857 12.75 5.25C12.75 4.67143 12.3286 4.25 11.75 4.25ZM13.5 5.25C13.5 4.67143 13.9214 4.25 14.5 4.25C15.0786 4.25 15.5 4.67143 15.5 5.25C15.5 5.82857 15.0786 6.25 14.5 6.25C13.9214 6.25 13.5 5.82857 13.5 5.25ZM2.5 7.25C1.83696 7.25 1.25 7.67143 1.25 8.25C1.25 8.82857 1.83696 9.25 2.5 9.25C3.16304 9.25 3.75 8.82857 3.75 8.25C3.75 7.67143 3.16304 7.25 2.5 7.25ZM4.25 8.25C4.25 7.67143 4.67143 7.25 5.25 7.25C5.82857 7.25 6.25 7.67143 6.25 8.25C6.25 8.82857 5.82857 9.25 5.25 9.25C4.67143 9.25 4.25 8.82857 4.25 8.25ZM8 7.25C7.42143 7.25 7 7.67143 7 8.25C7 8.82857 7.42143 9.25 8 9.25C8.57857 9.25 9 8.82857 9 8.25C9 7.67143 8.57857 7.25 8 7.25ZM10.75 8.25C10.75 7.67143 11.1714 7.25 11.75 7.25C12.3286 7.25 12.75 7.67143 12.75 8.25C12.75 8.82857 12.3286 9.25 11.75 9.25C11.1714 9.25 10.75 8.82857 10.75 8.25ZM14.5 7.25C13.9214 7.25 13.5 7.67143 13.5 8.25C13.5 8.82857 13.9214 9.25 14.5 9.25C15.0786 9.25 15.5 8.82857 15.5 8.25C15.5 7.67143 15.0786 7.25 14.5 7.25Z" fill="currentColor"/>
-        </svg>
-        Sponsor on GitHub
-    </a>
-</div>
-
+                <button class="sponsor-close" onclick="hideSponsor()">×</button>
+                <p class="sponsor-text">Support the ongoing maintenance and development of this project by becoming a sponsor. Your contribution helps ensure the tool's continued improvement and reliability.</p>
+                <a href="https://github.com/sponsors/gosom" class="sponsor-button" target="_blank" rel="noopener noreferrer">
+                    <svg height="16" width="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.25 2.5C4.25 1.83696 4.67143 1.25 5.25 1.25C5.82857 1.25 6.25 1.83696 6.25 2.5C6.25 3.16304 5.82857 3.75 5.25 3.75C4.67143 3.75 4.25 3.16304 4.25 2.5ZM2.5 3.75C1.92143 3.75 1.5 3.16304 1.5 2.5C1.5 1.83696 1.92143 1.25 2.5 1.25C3.07857 1.25 3.5 1.83696 3.5 2.5C3.5 3.16304 3.07857 3.75 2.5 3.75ZM8 1.25C7.42143 1.25 7 1.83696 7 2.5C7 3.16304 7.42143 3.75 8 3.75C8.57857 3.75 9 3.16304 9 2.5C9 1.83696 8.57857 1.25 8 1.25ZM10.75 2.5C10.75 1.83696 11.1714 1.25 11.75 1.25C12.3286 1.25 12.75 1.83696 12.75 2.5C12.75 3.16304 12.3286 3.75 11.75 3.75C11.1714 3.75 10.75 3.16304 10.75 2.5ZM14.5 1.25C13.9214 1.25 13.5 1.83696 13.5 2.5C13.5 3.16304 13.9214 3.75 14.5 3.75C15.0786 3.75 15.5 3.16304 15.5 2.5C15.5 1.83696 15.0786 1.25 14.5 1.25ZM1.25 5.25C1.25 4.67143 1.83696 4.25 2.5 4.25C3.16304 4.25 3.75 4.67143 3.75 5.25C3.75 5.82857 3.16304 6.25 2.5 6.25C1.83696 6.25 1.25 5.82857 1.25 5.25ZM5.25 4.25C4.67143 4.25 4.25 4.67143 4.25 5.25C4.25 5.82857 4.67143 6.25 5.25 6.25C5.82857 6.25 6.25 5.82857 6.25 5.25ZM7 5.25C7 4.67143 7.42143 4.25 8 4.25C8.57857 4.25 9 4.67143 9 5.25C9 5.82857 8.57857 6.25 8 6.25C7.42143 6.25 7 5.82857 7 5.25ZM11.75 4.25C11.1714 4.25 10.75 4.67143 10.75 5.25C10.75 5.82857 11.1714 6.25 11.75 6.25C12.3286 6.25 12.75 7.67143 12.75 7.67143 12.3286 7.67143 11.75 7.67143 11.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM13.5 5.25C13.5 4.67143 13.9214 4.25 14.5 4.25C15.0786 4.25 15.5 4.67143 15.5 5.25C15.5 5.82857 15.0786 6.25 14.5 6.25C13.9214 6.25 13.5 5.82857 13.5 5.25ZM2.5 7.25C1.83696 7.25 1.25 7.67143 1.25 8.25C1.25 8.82857 1.83696 9.25 2.5 9.25C3.16304 9.25 3.75 8.82857 3.75 8.25C3.75 7.67143 3.16304 7.25 2.5 7.25ZM4.25 8.25C4.25 7.67143 4.67143 7.25 5.25 7.25C5.82857 7.25 6.25 7.67143 6.25 8.25C6.25 8.82857 5.82857 9.25 5.25 9.25C4.67143 9.25 4.25 8.82857 4.25 8.25ZM8 7.25C7.42143 7.25 7 7.67143 7 8.25C7 8.82857 7.42143 9.25 8 9.25C8.57857 9.25 9 8.82857 9 8.25C9 7.67143 8.57857 7.25 8 7.25ZM10.75 8.25C10.75 7.67143 11.1714 7.25 11.75 7.25C12.3286 7.25 12.75 7.67143 12.75 8.25C12.75 8.82857 12.3286 9.25 11.75 9.25C11.1714 9.25 10.75 8.82857 10.75 8.25ZM14.5 7.25C13.9214 7.25 13.5 7.67143 13.5 8.25C13.5 8.82857 13.9214 9.25 14.5 9.25C15.0786 9.25 15.5 8.82857 15.5 8.25C15.5 7.67143 15.0786 7.25 14.5 7.25Z" fill="currentColor"/>
+                    </svg>
+                    Sponsor on GitHub
+                </a>
+            </div>
         </header>
         <main>
             <div class="sidebar">
@@ -633,7 +602,7 @@ nav a:hover {
                         </div>
                         <div class="form-group">
                             <label for="keywords">Keywords:</label>
-                            <textarea id="keywords" name="keywords" rows="10"></textarea>
+                            <textarea id="keywords" name="keywords" rows="6"></textarea>
                         </div>
                         <div class="form-group">
                             <label for="lang">Language:</label>
@@ -641,65 +610,106 @@ nav a:hover {
                         </div>
                     </fieldset>
 
+                    <!-- Location Settings -->
                     <details class="expandable-section">
                         <summary>Location Settings</summary>
                         <fieldset>
                             <div class="form-group">
-                                <label for="zoom">Zoom:</label>
-                                <input type="number" id="zoom" name="zoom" value="15">
+                                <label for="zoom">Zoom (0-21):</label>
+                                <input type="number" id="zoom" name="zoom" value="15" min="0" max="21">
                             </div>
-                            <div class="form-group">
-                                <label for="latitude">Latitude:</label>
-                                <input type="number" step="0.000000000000001" id="latitude" name="latitude" value="0">
-                            </div>
-                            <div class="form-group">
-                                <label for="longitude">Longitude:</label>
-                                <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="0">
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="latitude">Latitude:</label>
+                                    <input type="number" step="0.000000000000001" id="latitude" name="latitude" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="longitude">Longitude:</label>
+                                    <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="0">
+                                </div>
                             </div>
                         </fieldset>
                     </details>
 
-                    <details class="expandable-section">
+                    <!-- Advanced Options (email, extra reviews, depth, radius, fastmode) -->
+                    <details class="expandable-section" open>
                         <summary>Advanced Options</summary>
                         <fieldset>
                             <div class="form-group checkbox">
-                                <input type="checkbox" id="fastmode" name="fastmode">
-                                <label for="fastmode">Fast Mode (BETA)</label>
-                            </div>
-                            <div class="form-group">
-                                <label for="radius">Radius (BETA):</label>
-                                <input type="number" id="radius" name="radius" value="10000">
-                            </div>
-                            <div class="form-group">
-                                <label for="depth">Depth:</label>
-                                <input type="number" step="1" id="depth" name="depth" value="10">
+                                <input type="checkbox" id="email" name="email">
+                                <label for="email"><strong>Extract emails</strong> from websites <span class="badge-tag badge-flag">-email</span></label>
                             </div>
                             <div class="form-group checkbox">
-                                <input type="checkbox" id="email" name="email">
-                                <label for="email">Fetch Emails</label>
+                                <input type="checkbox" id="extra_reviews" name="extra_reviews">
+                                <label for="extra_reviews"><strong>Collect extra reviews</strong> <span class="badge-tag badge-flag">-extra-reviews</span></label>
                             </div>
+                            <div class="form-group checkbox">
+                                <input type="checkbox" id="fastmode" name="fastmode">
+                                <label for="fastmode">Fast Mode (reduced data) <span class="badge-tag badge-flag">-fast-mode</span></label>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="radius">Radius (meters):</label>
+                                    <input type="number" id="radius" name="radius" value="10000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="depth">Depth (scrolls):</label>
+                                    <input type="number" step="1" id="depth" name="depth" value="10">
+                                </div>
+                            </div>
+
                             <div class="form-group">
                                 <label for="maxtime">Max job time:</label>
                                 <input type="text" id="maxtime" name="maxtime" value="10m">
                             </div>
-                            <div class="form-group checkbox">
-                                <input type="checkbox" id="extra_reviews" name="extra_reviews">
-                                <label for="extra_reviews">Extra Reviews <span class="badge-cli">CLI</span></label>
+                        </fieldset>
+                    </details>
+
+                    <!-- Performance & Concurrency Settings -->
+                    <details class="expandable-section">
+                        <summary>Performance & Browser Pool</summary>
+                        <fieldset>
+                            <div class="form-group">
+                                <label for="concurrency">Concurrency (-c):</label>
+                                <select id="concurrency">
+                                    <option value="1">1 worker (default)</option>
+                                    <option value="2">2 workers</option>
+                                    <option value="4">4 workers (recommended)</option>
+                                    <option value="8">8 workers</option>
+                                    <option value="16">16 workers</option>
+                                </select>
+                                <p class="text-muted"><small>Sets the parallel crawl workers.</small></p>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="pages_per_browser">Pages per browser:</label>
+                                    <input type="number" id="pages_per_browser" value="1" min="1" max="16">
+                                    <p class="text-muted"><small>-pages-per-browser</small></p>
+                                </div>
+                                <div class="form-group">
+                                    <label for="browser_pool_size">Browser pool size:</label>
+                                    <input type="number" id="browser_pool_size" value="0" min="0" max="32">
+                                    <p class="text-muted"><small>-browser-pool-size (0=auto)</small></p>
+                                </div>
                             </div>
                         </fieldset>
                     </details>
 
+                    <!-- Proxies (Manual list or file upload) -->
                     <details class="expandable-section">
-                        <summary>Proxies</summary>
+                        <summary>Proxies & Credentials File</summary>
                         <fieldset>
                             <div class="form-group">
-                                <label for="proxies">Proxies: (one per line)</label>
-                                <p class="text-muted"><small>Examples:<br>
-                                        HTTPS proxy with username/password: https://username:password@myproxy.local:443<br>
-                                        HTTP proxy with username/password: http://username:password@myproxy.local:443<br>
-                                        SOCKS5 proxy without auth: socks5://127.0.0.1:8000
-                                </small></p>
-                                <textarea id="proxies" name="proxies" rows="5"></textarea>
+                                <label for="proxies">Proxies: (one per line, format: protocol://user:pass@host:port)</label>
+                                <textarea id="proxies" name="proxies" rows="3" placeholder="http://user:pass@host:8080&#10;socks5://host:1080"></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="proxy_file">Upload proxies credentials file: <span class="badge-tag badge-flag">-proxies-file</span></label>
+                                <input type="file" id="proxy_file" accept=".txt,.csv" onchange="handleProxyFileUpload(event)">
+                                <p class="text-muted"><small>Load proxies directly from a local text file into the list.</small></p>
                             </div>
                         </fieldset>
                     </details>
@@ -746,6 +756,46 @@ nav a:hover {
         el.style.display = msg ? 'block' : 'none';
     }
 
+    // ---- Proxy file upload handler ----
+    function handleProxyFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            const current = document.getElementById('proxies').value.trim();
+            const newProxies = content.trim();
+            if (current) {
+                document.getElementById('proxies').value = current + '\\n' + newProxies;
+            } else {
+                document.getElementById('proxies').value = newProxies;
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ---- Resume job handler ----
+    function resumeJob(job) {
+        if (!job || !job.Data) return;
+        const d = job.Data;
+        document.getElementById('name').value = (job.Name ? job.Name + ' (Resumed)' : 'Resumed Scrape');
+        if (d.keywords) document.getElementById('keywords').value = d.keywords.join('\\n');
+        if (d.lang) document.getElementById('lang').value = d.lang;
+        if (d.zoom !== undefined) document.getElementById('zoom').value = d.zoom;
+        if (d.lat) document.getElementById('latitude').value = d.lat;
+        if (d.lon) document.getElementById('longitude').value = d.lon;
+        if (d.radius) document.getElementById('radius').value = d.radius;
+        if (d.depth) document.getElementById('depth').value = d.depth;
+        document.getElementById('email').checked = !!d.email;
+        document.getElementById('extra_reviews').checked = !!d.extra_reviews;
+        document.getElementById('fastmode').checked = !!d.fast_mode;
+        if (d.proxies && Array.isArray(d.proxies)) {
+            document.getElementById('proxies').value = d.proxies.join('\\n');
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        showError('Job parameters loaded for resume. Review and click "Start Scraping" to resume.');
+    }
+
     // ---- Parse maxtime string (e.g. "10m", "1h", "90s") to seconds integer ----
     function parseMaxTime(str) {
         str = (str || '').trim().toLowerCase();
@@ -779,9 +829,12 @@ nav a:hover {
         const radius = parseInt(document.getElementById('radius').value) || 10000;
         const depth = parseInt(document.getElementById('depth').value) || 10;
         const email = document.getElementById('email').checked;
+        const extra_reviews = document.getElementById('extra_reviews').checked;
         const maxtimeStr = document.getElementById('maxtime').value.trim() || '10m';
         const maxtime = parseMaxTime(maxtimeStr);
-        const extra_reviews = document.getElementById('extra_reviews').checked;
+        const concurrency = parseInt(document.getElementById('concurrency').value) || 1;
+        const pages_per_browser = parseInt(document.getElementById('pages_per_browser').value) || 1;
+        const browser_pool_size = parseInt(document.getElementById('browser_pool_size').value) || 0;
         const rawProxies = document.getElementById('proxies').value.trim();
 
         if (!name) { showError('Job Name is required.'); btn.disabled = false; btn.textContent = 'Start Scraping'; spinner.classList.remove('active'); return; }
@@ -803,6 +856,9 @@ nav a:hover {
             email,
             max_time: maxtime,
             extra_reviews,
+            concurrency,
+            pages_per_browser,
+            browser_pool_size,
             proxies
         };
 
@@ -830,6 +886,7 @@ nav a:hover {
     }
 
     // ---- Jobs table ----
+    let cachedJobs = [];
     function escapeHtml(str) {
         return String(str == null ? '' : str)
             .replace(/&/g, '&amp;')
@@ -843,7 +900,8 @@ nav a:hover {
             const res = await fetch('/api/jobs');
             if (!res.ok) return;
             const jobs = await res.json();
-            renderJobs(jobs);
+            cachedJobs = jobs || [];
+            renderJobs(cachedJobs);
         } catch (err) {
             console.error('fetchJobs error:', err);
         }
@@ -879,8 +937,11 @@ nav a:hover {
             let actionsHtml = '<div class="actions-cell">';
             if (status === 'ok') {
                 actionsHtml += `<button class="view-button" onclick="openMapModal('${j.ID}', '${name}')">View</button>`;
-                actionsHtml += `<a href="/download/${j.ID}?format=csv" class="download-button">CSV</a>`;
-                actionsHtml += `<a href="/download/${j.ID}?format=json" class="json-button">JSON</a>`;
+                actionsHtml += `<a href="/download/${j.ID}?format=csv" class="download-button" title="Download CSV">CSV</a>`;
+                actionsHtml += `<a href="/download/${j.ID}?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
+            }
+            if (status === 'failed' || status === 'error' || status === 'working') {
+                actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.ID}')" title="Resume/Restart this job parameters">Resume</button>`;
             }
             actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.ID}')">Delete</button>`;
             actionsHtml += '</div>';
@@ -898,6 +959,13 @@ nav a:hover {
         tbody.innerHTML = html;
     }
 
+    function triggerResume(jobId) {
+        const job = cachedJobs.find(j => j.ID === jobId);
+        if (job) {
+            resumeJob(job);
+        }
+    }
+
     async function deleteJob(id) {
         if (!confirm('Delete this job?')) return;
         try {
@@ -913,7 +981,6 @@ nav a:hover {
     let markersGroup = null;
 
     async function openMapModal(jobId, jobName) {
-        // Build modal HTML
         const existing = document.getElementById('__map-modal');
         if (existing) existing.remove();
 
@@ -934,7 +1001,6 @@ nav a:hover {
         modal.addEventListener('click', (e) => { if (e.target === modal) closeMapModal(); });
         document.getElementById('map-modal-container').appendChild(modal);
 
-        // Init Leaflet
         if (leafletMap) {
             leafletMap.remove();
             leafletMap = null;
@@ -1043,8 +1109,34 @@ def get_jobs():
 @app.route("/api/jobs", methods=["POST"])
 def create_job():
     try:
-        payload = request.json
-        req_data = json.dumps(payload).encode("utf-8")
+        payload = request.json or {}
+
+        # Backend expects these core parameters
+        cleaned_payload = {
+            "name": payload.get("name"),
+            "keywords": payload.get("keywords", []),
+            "lang": payload.get("lang", "en"),
+            "zoom": int(payload.get("zoom", 15)),
+            "depth": int(payload.get("depth", 10)),
+            "radius": int(payload.get("radius", 10000)),
+            "max_time": int(payload.get("max_time", 600)),
+            "email": bool(payload.get("email", False)),
+            "fast_mode": bool(payload.get("fast_mode", False)),
+            "extra_reviews": bool(payload.get("extra_reviews", False)),
+            "lat": str(payload.get("lat") or ""),
+            "lon": str(payload.get("lon") or ""),
+            "proxies": payload.get("proxies", [])
+        }
+
+        # Optional concurrency/pool parameters passed along
+        if "concurrency" in payload:
+            cleaned_payload["concurrency"] = int(payload["concurrency"])
+        if "browser_pool_size" in payload:
+            cleaned_payload["browser_pool_size"] = int(payload["browser_pool_size"])
+        if "pages_per_browser" in payload:
+            cleaned_payload["pages_per_browser"] = int(payload["pages_per_browser"])
+
+        req_data = json.dumps(cleaned_payload).encode("utf-8")
         req = urllib.request.Request(
             f"{BACKEND_URL}/api/v1/jobs",
             data=req_data,
@@ -1070,7 +1162,18 @@ def download_job(job_id):
         if fmt == "json":
             text = content.decode("utf-8", errors="replace")
             reader = csv.DictReader(io.StringIO(text))
-            items = list(reader)
+            items = []
+            for row in reader:
+                converted = {}
+                for k, v in row.items():
+                    if isinstance(v, str) and (v.startswith('{') or v.startswith('[')):
+                        try:
+                            converted[k] = json.loads(v)
+                        except Exception:
+                            converted[k] = v
+                    else:
+                        converted[k] = v
+                items.append(converted)
             json_data = json.dumps(items, indent=2, ensure_ascii=False)
             return Response(
                 json_data,
