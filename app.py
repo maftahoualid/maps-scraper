@@ -3,12 +3,41 @@ import io
 import csv
 import json
 import math
+import socket
+import http.client
 import urllib.request
 import urllib.error
 from flask import Flask, render_template_string, request, jsonify, Response
 
 app = Flask(__name__)
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:8081")
+DOCKER_SOCKET_PATH = "/var/run/docker.sock"
+
+# Docker Engine client over UNIX socket
+class DockerUnixSocket(http.client.HTTPConnection):
+    def __init__(self):
+        super().__init__("localhost")
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(DOCKER_SOCKET_PATH)
+
+def docker_action(container_name, action):
+    """action: 'pause', 'unpause', or 'json'"""
+    try:
+        conn = DockerUnixSocket()
+        if action == "json":
+            conn.request("GET", f"/v1.44/containers/{container_name}/json")
+            res = conn.getresponse()
+            if res.status == 200:
+                data = json.loads(res.read().decode())
+                return {"status": "ok", "state": data.get("State", {})}
+            return {"status": "error", "code": res.status}
+        else:
+            conn.request("POST", f"/v1.44/containers/{container_name}/{action}")
+            res = conn.getresponse()
+            return {"status": "ok" if res.status in (200, 204) else "error", "code": res.status}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -72,6 +101,63 @@ main {
     overflow-y: auto;
     background-color: var(--color-background);
 }
+
+.table-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.table-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.engine-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-engine {
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.btn-engine-pause {
+    background-color: #f59e0b;
+    color: #0f172a;
+}
+.btn-engine-pause:hover { background-color: #fbbf24; }
+
+.btn-engine-resume {
+    background-color: #10b981;
+    color: #0f172a;
+}
+.btn-engine-resume:hover { background-color: #34d399; }
+
+.badge-engine {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.badge-engine-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+.badge-engine-paused { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
 
 form {
     display: flex;
@@ -141,18 +227,9 @@ button {
     transition: background-color 0.2s, transform 0.05s;
 }
 
-button:hover {
-    background-color: var(--color-primary-light);
-}
-
-button:active {
-    transform: scale(0.99);
-}
-
-button:disabled {
-    background-color: #475569;
-    cursor: not-allowed;
-}
+button:hover { background-color: var(--color-primary-light); }
+button:active { transform: scale(0.99); }
+button:disabled { background-color: #475569; cursor: not-allowed; }
 
 table {
     width: 100%;
@@ -177,9 +254,7 @@ th {
     background-color: rgba(15, 23, 42, 0.6);
 }
 
-tr:hover td {
-    background-color: rgba(255, 255, 255, 0.02);
-}
+tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 
 .status-indicator {
     display: inline-block;
@@ -622,6 +697,18 @@ tr:hover td {
                 </form>
             </div>
             <div class="content">
+                <div class="table-header-bar">
+                    <div class="table-title">
+                        <span>Tasks & Scraping Jobs</span>
+                    </div>
+                    <div class="engine-controls">
+                        <span id="engine-status-badge" class="badge-engine badge-engine-running">Engine Active</span>
+                        <button id="engine-toggle-btn" class="btn-engine btn-engine-pause" onclick="toggleEnginePause()">
+                            ⏸ Pause Engine
+                        </button>
+                    </div>
+                </div>
+
                 <div id="spinner" class="spinner"></div>
                 <table id="job-table">
                     <thead>
@@ -647,6 +734,51 @@ tr:hover td {
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script>
+    // ---- Engine Pause / Resume Control ----
+    let isEnginePaused = false;
+
+    async function checkEngineStatus() {
+        try {
+            const res = await fetch('/api/engine/status');
+            const data = await res.json();
+            updateEngineUI(data.paused);
+        } catch (e) {
+            console.error('Engine status check error:', e);
+        }
+    }
+
+    function updateEngineUI(paused) {
+        isEnginePaused = paused;
+        const badge = document.getElementById('engine-status-badge');
+        const btn = document.getElementById('engine-toggle-btn');
+        if (paused) {
+            badge.className = 'badge-engine badge-engine-paused';
+            badge.textContent = 'Engine Paused';
+            btn.className = 'btn-engine btn-engine-resume';
+            btn.innerHTML = '▶ Resume Engine';
+        } else {
+            badge.className = 'badge-engine badge-engine-running';
+            badge.textContent = 'Engine Active';
+            btn.className = 'btn-engine btn-engine-pause';
+            btn.innerHTML = '⏸ Pause Engine';
+        }
+    }
+
+    async function toggleEnginePause() {
+        const btn = document.getElementById('engine-toggle-btn');
+        btn.disabled = true;
+        try {
+            const targetAction = isEnginePaused ? 'resume' : 'pause';
+            const res = await fetch('/api/engine/' + targetAction, { method: 'POST' });
+            const data = await res.json();
+            updateEngineUI(data.paused);
+        } catch (e) {
+            alert('Error toggling engine state: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     // ---- Error display ----
     function showError(msg) {
         const el = document.getElementById('error-container');
@@ -663,6 +795,7 @@ tr:hover td {
         document.getElementById('leadsdb_api_key').addEventListener('input', (e) => {
             localStorage.setItem('leadsdb_api_key', e.target.value.trim());
         });
+        checkEngineStatus();
     });
 
     // ---- Parse Geo string "lat,lon" ----
@@ -717,9 +850,9 @@ tr:hover td {
 
     // ---- Resume Job Handler (-resume) ----
     function resumeJob(job) {
-        if (!job || !job.Data) return;
-        const d = job.Data;
-        document.getElementById('name').value = (job.Name ? job.Name + ' (Resumed)' : 'Resumed Scrape');
+        if (!job || !job.data) return;
+        const d = job.data;
+        document.getElementById('name').value = (job.name ? job.name + ' (Resumed)' : 'Resumed Scrape');
         if (d.keywords) document.getElementById('keywords').value = d.keywords.join('\\n');
         if (d.lang) document.getElementById('lang').value = d.lang;
         if (d.zoom !== undefined) document.getElementById('zoom').value = d.zoom;
@@ -840,7 +973,7 @@ tr:hover td {
         };
 
         try {
-            const res = await fetch('/api/jobs', {
+            const res = await fetch('/api/v1/jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -874,11 +1007,12 @@ tr:hover td {
 
     async function fetchJobs() {
         try {
-            const res = await fetch('/api/jobs');
+            const res = await fetch('/api/v1/jobs');
             if (!res.ok) return;
             const jobs = await res.json();
             cachedJobs = jobs || [];
             renderJobs(cachedJobs);
+            checkEngineStatus();
         } catch (err) {
             console.error('fetchJobs error:', err);
         }
@@ -893,10 +1027,10 @@ tr:hover td {
 
         let html = '';
         for (const j of jobs) {
-            const id = escapeHtml(j.ID || '');
-            const name = escapeHtml(j.Name || '—');
-            const date = j.Date ? new Date(j.Date).toLocaleString() : '—';
-            const status = j.Status || 'pending';
+            const id = escapeHtml(j.id || '');
+            const name = escapeHtml(j.name || '—');
+            const date = j.date ? new Date(j.date).toLocaleString() : '—';
+            const status = j.status || 'pending';
 
             let statusHtml = '';
             if (status === 'ok') {
@@ -913,19 +1047,19 @@ tr:hover td {
 
             let actionsHtml = '<div class="actions-cell">';
             if (status === 'ok') {
-                actionsHtml += `<button class="view-button" onclick="openMapModal('${j.ID}', '${name}')">View</button>`;
-                actionsHtml += `<a href="/download/${j.ID}?format=csv" class="download-button" title="Download CSV">CSV</a>`;
-                actionsHtml += `<a href="/download/${j.ID}?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
-                actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.ID}')" title="Export to LeadsDB (-leadsdb-api-key)">LeadsDB</button>`;
+                actionsHtml += `<button class="view-button" onclick="openMapModal('${j.id}', '${name}')">View</button>`;
+                actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=csv" class="download-button" title="Download CSV">CSV</a>`;
+                actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
+                actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.id}')" title="Export to LeadsDB (-leadsdb-api-key)">LeadsDB</button>`;
             }
-            actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.ID}')" title="Resume/Restart this job parameters (-resume)">Resume</button>`;
-            actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.ID}')">Delete</button>`;
+            actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.id}')" title="Resume/Restart this job parameters (-resume)">Resume</button>`;
+            actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.id}')">Delete</button>`;
             actionsHtml += '</div>';
 
             const shortId = id.substring(0, 8);
 
             html += `<tr>
-                <td title="${id}">${shortId}…</td>
+                <td title="${id}"><a href="/api/v1/jobs/${id}" target="_blank" style="color:var(--color-primary);text-decoration:none;" title="View Clean JSON details">${shortId}…</a></td>
                 <td><strong>${name}</strong></td>
                 <td>${date}</td>
                 <td>${statusHtml}</td>
@@ -936,7 +1070,7 @@ tr:hover td {
     }
 
     function triggerResume(jobId) {
-        const job = cachedJobs.find(j => j.ID === jobId);
+        const job = cachedJobs.find(j => j.id === jobId);
         if (job) {
             resumeJob(job);
         }
@@ -945,7 +1079,7 @@ tr:hover td {
     async function deleteJob(id) {
         if (!confirm('Delete this job?')) return;
         try {
-            await fetch('/api/jobs/' + id, { method: 'DELETE' });
+            await fetch('/api/v1/jobs/' + id, { method: 'DELETE' });
             fetchJobs();
         } catch (err) {
             alert('Error deleting job: ' + err.message);
@@ -992,9 +1126,9 @@ tr:hover td {
         const listEl = document.getElementById('job-places-list');
 
         try {
-            const res = await fetch('/api/preview/' + jobId);
+            const res = await fetch('/api/v1/jobs/' + jobId + '/download?format=json');
             const data = await res.json();
-            const places = data.sample || [];
+            const places = data.places || [];
 
             listEl.innerHTML = '';
             if (places.length === 0) {
@@ -1089,21 +1223,70 @@ def generate_grid_points(bbox_str, cell_km=1.0):
     except Exception:
         return []
 
+def format_job_clean(raw_job):
+    """Formats raw Gosom job dictionary into standardized, clean structure."""
+    if not isinstance(raw_job, dict):
+        return raw_job
+    d = raw_job.get("Data") or raw_job.get("data") or {}
+    max_time_raw = d.get("max_time", 0)
+    max_time_sec = int(max_time_raw / 1_000_000_000) if max_time_raw > 1_000_000 else max_time_raw
+    return {
+        "id": raw_job.get("ID") or raw_job.get("id"),
+        "name": raw_job.get("Name") or raw_job.get("name"),
+        "date": raw_job.get("Date") or raw_job.get("date"),
+        "status": raw_job.get("Status") or raw_job.get("status"),
+        "data": {
+            "keywords": d.get("keywords", []),
+            "lang": d.get("lang", "en"),
+            "zoom": d.get("zoom", 15),
+            "lat": d.get("lat", ""),
+            "lon": d.get("lon", ""),
+            "radius": d.get("radius", 10000),
+            "depth": d.get("depth", 10),
+            "max_time_seconds": max_time_sec,
+            "email": d.get("email", False),
+            "fast_mode": d.get("fast_mode", False),
+            "extra_reviews": d.get("extra_reviews", False),
+            "proxies": d.get("proxies", [])
+        }
+    }
+
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route("/api/jobs", methods=["GET"])
-def get_jobs():
+# ---- Engine Pause / Resume Endpoints ----
+@app.route("/api/engine/status", methods=["GET"])
+def engine_status():
+    res = docker_action("gmaps-backend", "json")
+    if res.get("status") == "ok":
+        paused = bool(res.get("state", {}).get("Paused", False))
+        return jsonify({"status": "ok", "paused": paused, "state": res.get("state", {}).get("Status")})
+    return jsonify({"status": "unknown", "paused": False}), 200
+
+@app.route("/api/engine/pause", methods=["POST"])
+def engine_pause():
+    res = docker_action("gmaps-backend", "pause")
+    return jsonify({"action": "pause", "paused": True, "result": res})
+
+@app.route("/api/engine/resume", methods=["POST"])
+def engine_resume():
+    res = docker_action("gmaps-backend", "unpause")
+    return jsonify({"action": "resume", "paused": False, "result": res})
+
+# ---- Standard REST Endpoints (/api/v1/jobs) ----
+@app.route("/api/v1/jobs", methods=["GET"])
+def list_jobs():
     try:
         req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs")
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
-            return jsonify(data)
+            cleaned = [format_job_clean(j) for j in data]
+            return Response(json.dumps(cleaned, indent=2, ensure_ascii=False), mimetype="application/json")
     except Exception as e:
         return jsonify([]), 200
 
-@app.route("/api/jobs", methods=["POST"])
+@app.route("/api/v1/jobs", methods=["POST"])
 def create_job():
     try:
         payload = request.json or {}
@@ -1165,8 +1348,32 @@ def create_job():
     except Exception as e:
         return Response(str(e), status=500)
 
-@app.route("/download/<job_id>")
-def download_job(job_id):
+@app.route("/api/v1/jobs/<job_id>", methods=["GET"])
+def get_job(job_id):
+    try:
+        req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs/{job_id}")
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode())
+            formatted = format_job_clean(data)
+            return Response(json.dumps(formatted, indent=2, ensure_ascii=False), mimetype="application/json")
+    except urllib.error.HTTPError as e:
+        return Response(e.read().decode("utf-8"), status=e.code)
+    except Exception as e:
+        return Response(str(e), status=500)
+
+@app.route("/api/v1/jobs/<job_id>", methods=["DELETE"])
+def delete_job_v1(job_id):
+    try:
+        req = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
+        with urllib.request.urlopen(req) as resp:
+            return jsonify({"status": "deleted", "id": job_id}), 200
+    except urllib.error.HTTPError as e:
+        return Response(e.read().decode("utf-8"), status=e.code)
+    except Exception as e:
+        return Response(str(e), status=500)
+
+@app.route("/api/v1/jobs/<job_id>/download", methods=["GET"])
+def download_job_v1(job_id):
     fmt = request.args.get("format", "csv").lower()
     try:
         req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
@@ -1188,9 +1395,13 @@ def download_job(job_id):
                     else:
                         converted[k] = v
                 items.append(converted)
-            json_data = json.dumps(items, indent=2, ensure_ascii=False)
+            json_response = {
+                "job_id": job_id,
+                "total_results": len(items),
+                "places": items
+            }
             return Response(
-                json_data,
+                json.dumps(json_response, indent=2, ensure_ascii=False),
                 mimetype="application/json",
                 headers={"Content-Disposition": f"attachment; filename=gmaps_{job_id[:8]}.json"}
             )
@@ -1203,17 +1414,22 @@ def download_job(job_id):
     except Exception as e:
         return Response(f"Download error: {e}", status=500)
 
-@app.route("/api/preview/<job_id>")
-def preview_job(job_id):
-    try:
-        req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
-        with urllib.request.urlopen(req) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
-        reader = csv.DictReader(io.StringIO(text))
-        rows = list(reader)
-        return jsonify({"total": len(rows), "sample": rows})
-    except Exception as e:
-        return jsonify({"error": str(e), "sample": []}), 500
+# Backwards compatibility legacy aliases
+@app.route("/api/jobs", methods=["GET"])
+def legacy_get_jobs():
+    return list_jobs()
+
+@app.route("/api/jobs", methods=["POST"])
+def legacy_post_jobs():
+    return create_job()
+
+@app.route("/download/<job_id>")
+def legacy_download(job_id):
+    return download_job_v1(job_id)
+
+@app.route("/api/jobs/<job_id>", methods=["DELETE"])
+def legacy_delete(job_id):
+    return delete_job_v1(job_id)
 
 @app.route("/api/export/leadsdb/<job_id>", methods=["POST"])
 def export_leadsdb(job_id):
@@ -1249,15 +1465,6 @@ def export_leadsdb(job_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route("/api/jobs/<job_id>", methods=["DELETE"])
-def delete_job(job_id):
-    try:
-        req = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
-        with urllib.request.urlopen(req) as resp:
-            return jsonify({"status": "deleted"}), 200
-    except Exception as e:
-        return Response(str(e), status=500)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
