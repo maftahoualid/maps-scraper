@@ -19,19 +19,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <style>
 :root {
-    --color-background: #f9f9f9;
-    --color-surface: #ffffff;
-    --color-text: #333333;
-    --color-text-light: #666666;
-    --color-border: #e0e0e0;
-    --color-primary: #4a4a4a;
-    --color-primary-light: #5a5a5a;
-    --color-success: #43a047;
-    --color-warning: #fdd835;
-    --color-error: #e53935;
-    --color-github-star: #f1e05a;
-    --color-sponsor: #4a4a4a;
-    --color-sponsor-hover: #5a5a5a;
+    --color-background: #0f172a;
+    --color-surface: #1e293b;
+    --color-surface-hover: #334155;
+    --color-text: #f1f5f9;
+    --color-text-light: #94a3b8;
+    --color-border: #334155;
+    --color-primary: #3b82f6;
+    --color-primary-light: #60a5fa;
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
 }
 
 body {
@@ -50,52 +48,7 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
-}
-
-header {
-    background-color: var(--color-surface);
-    padding: 24px 32px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-h1 {
-    font-size: 24px;
-    font-weight: 500;
-    color: var(--color-primary);
-    margin: 0 0 16px 0;
-}
-
-.github-section {
-    display: flex;
-    align-items: center;
-    margin-top: 16px;
-}
-
-.github-button {
-    display: inline-flex;
-    align-items: center;
-    background-color: var(--color-sponsor);
-    color: white;
-    border: 1px solid var(--color-border);
-    padding: 10px 16px;
-    margin-left: 16px;
-    border-radius: 4px;
-    font-size: 14px;
-    text-decoration: none;
-    transition: background-color 0.2s, border-color 0.2s;
-}
-
-.github-button:hover {
-    background-color: var(--color-sponsor-hover);
-    border-color: var(--color-primary);
-}
-
-.github-button svg {
-    margin-right: 8px;
-}
-
-.github-button svg path {
-    fill: var(--color-github-star);
+    height: 100vh;
 }
 
 main {
@@ -110,7 +63,7 @@ main {
     padding: 24px;
     overflow-y: auto;
     border-right: 1px solid var(--color-border);
-    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
 }
 
 .content {
@@ -133,9 +86,9 @@ fieldset {
 }
 
 legend {
-    font-weight: 500;
+    font-weight: 600;
     margin-bottom: 12px;
-    color: var(--color-primary);
+    color: var(--color-text);
     font-size: 15px;
 }
 
@@ -157,11 +110,18 @@ select {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 13.5px;
     box-sizing: border-box;
-    background: #fff;
+    background: #0f172a;
     color: var(--color-text);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 input[type="file"] {
@@ -174,18 +134,23 @@ button {
     color: white;
     border: none;
     padding: 12px 20px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
-    transition: background-color 0.2s;
+    font-weight: 500;
+    transition: background-color 0.2s, transform 0.05s;
 }
 
 button:hover {
     background-color: var(--color-primary-light);
 }
 
+button:active {
+    transform: scale(0.99);
+}
+
 button:disabled {
-    background-color: #aaa;
+    background-color: #475569;
     cursor: not-allowed;
 }
 
@@ -194,9 +159,10 @@ table {
     border-collapse: separate;
     border-spacing: 0;
     background-color: var(--color-surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
     overflow: hidden;
+    border: 1px solid var(--color-border);
 }
 
 th, td {
@@ -206,24 +172,34 @@ th, td {
 }
 
 th {
-    font-weight: 500;
-    color: var(--color-primary);
-    background-color: var(--color-surface);
+    font-weight: 600;
+    color: var(--color-text-light);
+    background-color: rgba(15, 23, 42, 0.6);
+}
+
+tr:hover td {
+    background-color: rgba(255, 255, 255, 0.02);
 }
 
 .status-indicator {
     display: inline-block;
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: lowercase;
 }
 
-.status-ok { background-color: var(--color-success); color: white; }
-.status-pending { background-color: var(--color-warning); color: var(--color-text); }
-.status-working { background-color: var(--color-warning); color: var(--color-text); }
-.status-failed { background-color: var(--color-error); color: white; }
-.status-error { background-color: var(--color-error); color: white; }
+.status-ok { background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.status-pending { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.status-working { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); animation: pulse 1.5s infinite; }
+.status-failed { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+.status-error { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
 
 .download-button, .delete-button, .view-button, .resume-button, .leads-button {
     padding: 5px 10px;
@@ -236,22 +212,18 @@ th {
     cursor: pointer;
     border: none;
     margin-right: 4px;
+    transition: filter 0.15s;
 }
 
-.download-button { background-color: var(--color-success); }
-.download-button:hover { background-color: #388e3c; }
+.download-button:hover, .delete-button:hover, .view-button:hover, .resume-button:hover, .leads-button:hover {
+    filter: brightness(1.15);
+}
 
-.view-button { background-color: #2c7be5; }
-.view-button:hover { background-color: #1a68d1; }
-
+.download-button { background-color: #059669; }
+.view-button { background-color: #2563eb; }
 .resume-button { background-color: #d97706; }
-.resume-button:hover { background-color: #b45309; }
-
 .leads-button { background-color: #0284c7; }
-.leads-button:hover { background-color: #0369a1; }
-
-.delete-button { background-color: var(--color-error); }
-.delete-button:hover { background-color: #c62828; }
+.delete-button { background-color: #dc2626; }
 
 .json-button {
     padding: 5px 10px;
@@ -265,34 +237,45 @@ th {
     cursor: pointer;
     border: none;
     margin-right: 4px;
+    transition: filter 0.15s;
 }
-.json-button:hover { background-color: #6d28d9; }
+.json-button:hover { filter: brightness(1.15); }
 
 .error-message {
     display: none;
-    background-color: #ffebee;
-    border: 1px solid var(--color-error);
-    color: var(--color-error);
+    background-color: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
     padding: 12px 16px;
-    border-radius: 4px;
+    border-radius: 6px;
     margin-bottom: 20px;
-    font-size: 14px;
+    font-size: 13.5px;
 }
 
 .error-message:not(:empty) {
     display: block;
 }
 
+.expandable-section {
+    border-radius: 6px;
+    overflow: hidden;
+}
+
 .expandable-section summary {
     cursor: pointer;
     padding: 10px 14px;
-    background-color: var(--color-background);
+    background-color: rgba(15, 23, 42, 0.6);
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--color-text);
     list-style: none;
     font-size: 13.5px;
     font-weight: 500;
+    transition: background-color 0.15s;
+}
+
+.expandable-section summary:hover {
+    background-color: rgba(51, 65, 85, 0.6);
 }
 
 .expandable-section summary::-webkit-details-marker {
@@ -303,14 +286,15 @@ th {
     border-bottom: none;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
+    background-color: rgba(51, 65, 85, 0.5);
 }
 
 .expandable-section[open] fieldset {
     border: 1px solid var(--color-border);
     border-top: none;
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 6px 6px;
     padding: 14px;
-    background: #fff;
+    background: rgba(15, 23, 42, 0.4);
 }
 
 @media (max-width: 768px) {
@@ -319,93 +303,16 @@ th {
         width: 100%;
         border-right: none;
         border-bottom: 1px solid var(--color-border);
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
     .content { padding: 20px; }
-}
-
-.sponsor-section {
-    position: relative;
-    margin-top: 24px;
-    padding: 16px;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-}
-
-.sponsor-close {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 20px;
-    height: 20px;
-    border: none;
-    background-color: transparent;
-    color: var(--color-text-light);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.2s;
-    padding: 0;
-}
-
-.sponsor-close:hover { background-color: transparent; color: var(--color-text); }
-
-.sponsor-text {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    color: var(--color-text);
-    padding-right: 20px;
-}
-
-.sponsor-button {
-    display: inline-flex;
-    align-items: center;
-    background-color: var(--color-sponsor);
-    color: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 4px;
-    font-size: 14px;
-    text-decoration: none;
-    transition: background-color 0.2s;
-}
-
-.sponsor-button:hover { background-color: var(--color-sponsor-hover); }
-.sponsor-button svg { margin-right: 8px; }
-
-nav {
-    margin-bottom: 16px;
-    padding: 8px 0;
-}
-
-nav a {
-    color: white;
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 6px 14px;
-    background-color: var(--color-primary);
-    border: 1px solid var(--color-primary);
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    display: inline-block;
-}
-
-nav a:hover {
-    background-color: var(--color-primary-light);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .spinner {
     display: none;
     width: 20px;
     height: 20px;
-    border: 3px solid #ccc;
+    border: 3px solid #334155;
     border-top-color: var(--color-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -422,19 +329,23 @@ nav a:hover {
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     justify-content: center;
     align-items: center;
 }
 
 .map-modal-content {
-    background: #fff;
+    background: var(--color-surface);
+    color: var(--color-text);
     width: 90vw;
     height: 85vh;
     border-radius: 8px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    border: 1px solid var(--color-border);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
 .map-modal-header {
@@ -442,10 +353,11 @@ nav a:hover {
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(15, 23, 42, 0.6);
 }
 
-.map-modal-header h2 { margin: 0; font-size: 1.1rem; }
+.map-modal-header h2 { margin: 0; font-size: 1.1rem; color: var(--color-text); }
 
 .map-modal-close {
     background: none;
@@ -453,11 +365,11 @@ nav a:hover {
     font-size: 1.6rem;
     line-height: 1;
     cursor: pointer;
-    color: #555;
+    color: var(--color-text-light);
     padding: 0;
 }
 
-.map-modal-close:hover { background: none; color: #222; }
+.map-modal-close:hover { background: none; color: #fff; }
 
 .map-modal-body { flex: 1; display: flex; min-height: 0; }
 
@@ -465,25 +377,29 @@ nav a:hover {
 
 #job-places-list {
     flex: 1;
-    min-width: 240px;
-    max-width: 360px;
+    min-width: 260px;
+    max-width: 380px;
     overflow-y: auto;
-    border-left: 1px solid #e0e0e0;
-    padding: 8px;
+    border-left: 1px solid var(--color-border);
+    padding: 10px;
+    background: var(--color-surface);
 }
 
 .place-item {
-    padding: 8px;
-    border-bottom: 1px solid #f0f0f0;
+    padding: 10px;
+    border-bottom: 1px solid var(--color-border);
     cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    transition: background-color 0.15s;
 }
-.place-item:hover { background: #f5f8ff; }
-.place-title { font-weight: 600; font-size: 13.5px; }
-.place-address { font-size: 0.8rem; color: #666; }
-.place-rating { font-size: 0.8rem; color: #d98300; }
+.place-item:hover { background: rgba(59, 130, 246, 0.15); }
+.place-title { font-weight: 600; font-size: 13.5px; color: #f1f5f9; }
+.place-address { font-size: 0.8rem; color: var(--color-text-light); }
+.place-rating { font-size: 0.8rem; color: #fbbf24; }
 
-.map-loading, .map-empty, .map-error { padding: 12px; color: #666; }
-.map-error { color: #c0392b; }
+.map-loading, .map-empty, .map-error { padding: 12px; color: var(--color-text-light); }
+.map-error { color: #f87171; }
 
 .form-group.checkbox {
     display: flex;
@@ -495,6 +411,7 @@ nav a:hover {
 .form-group.checkbox label {
     margin-bottom: 0;
     cursor: pointer;
+    color: var(--color-text);
 }
 
 .form-group.checkbox input[type="checkbox"] {
@@ -502,6 +419,7 @@ nav a:hover {
     height: 16px;
     margin-top: 2px;
     cursor: pointer;
+    accent-color: var(--color-primary);
 }
 
 .badge-tag {
@@ -512,7 +430,7 @@ nav a:hover {
     margin-left: 4px;
 }
 
-.badge-flag { background: #f1f5f9; color: #475569; }
+.badge-flag { background: #334155; color: #cbd5e1; }
 
 .text-muted {
     font-size: 12px;
@@ -537,31 +455,6 @@ nav a:hover {
 </head>
 <body>
     <div class="app-container">
-        <header>
-            <h1>Google Maps Scraper</h1>
-            <nav>
-                <a href="https://github.com/gosom/google-maps-scraper/blob/master/apidocs/swagger.json" target="_blank" rel="noopener noreferrer">API Documentation</a>
-            </nav>
-            <div class="github-section">
-                <p>If you find this tool useful, please consider starring our repository: </p>
-                <a href="https://github.com/gosom/google-maps-scraper" class="github-button" target="_blank" rel="noopener noreferrer">
-                <svg height="16" width="16" viewBox="0 0 16 16">
-                    <path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
-                  </svg>
-                  Star on GitHub
-                </a>
-            </div>
-            <div id="sponsor-section" class="sponsor-section">
-                <button class="sponsor-close" onclick="hideSponsor()">×</button>
-                <p class="sponsor-text">Support the ongoing maintenance and development of this project by becoming a sponsor. Your contribution helps ensure the tool's continued improvement and reliability.</p>
-                <a href="https://github.com/sponsors/gosom" class="sponsor-button" target="_blank" rel="noopener noreferrer">
-                    <svg height="16" width="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.25 2.5C4.25 1.83696 4.67143 1.25 5.25 1.25C5.82857 1.25 6.25 1.83696 6.25 2.5C6.25 3.16304 5.82857 3.75 5.25 3.75C4.67143 3.75 4.25 3.16304 4.25 2.5ZM2.5 3.75C1.92143 3.75 1.5 3.16304 1.5 2.5C1.5 1.83696 1.92143 1.25 2.5 1.25C3.07857 1.25 3.5 1.83696 3.5 2.5C3.5 3.16304 3.07857 3.75 2.5 3.75ZM8 1.25C7.42143 1.25 7 1.83696 7 2.5C7 3.16304 7.42143 3.75 8 3.75C8.57857 3.75 9 3.16304 9 2.5C9 1.83696 8.57857 1.25 8 1.25ZM10.75 2.5C10.75 1.83696 11.1714 1.25 11.75 1.25C12.3286 1.25 12.75 1.83696 12.75 2.5C12.75 3.16304 12.3286 3.75 11.75 3.75C11.1714 3.75 10.75 3.16304 10.75 2.5ZM14.5 1.25C13.9214 1.25 13.5 1.83696 13.5 2.5C13.5 3.16304 13.9214 3.75 14.5 3.75C15.0786 3.75 15.5 3.16304 15.5 2.5C15.5 1.83696 15.0786 1.25 14.5 1.25ZM1.25 5.25C1.25 4.67143 1.83696 4.25 2.5 4.25C3.16304 4.25 3.75 4.67143 3.75 5.25C3.75 5.82857 3.16304 6.25 2.5 6.25C1.83696 6.25 1.25 5.82857 1.25 5.25ZM5.25 4.25C4.67143 4.25 4.25 4.67143 4.25 5.25C4.25 5.82857 4.25 6.25 4.25 6.25C5.82857 6.25 6.25 5.82857 6.25 5.25ZM7 5.25C7 4.67143 7.42143 4.25 8 4.25C8.57857 4.25 9 4.67143 9 5.25C9 5.82857 8.57857 6.25 8 6.25C7.42143 6.25 7 5.82857 7 5.25ZM11.75 4.25C11.1714 4.25 10.75 4.67143 10.75 5.25C10.75 5.82857 11.1714 6.25 11.75 6.25C12.3286 6.25 12.75 7.67143 12.75 7.67143 12.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM13.5 5.25C13.5 4.67143 13.5 4.25 14.5 4.25C15.0786 4.25 15.5 4.67143 15.5 5.25C15.5 5.82857 15.0786 6.25 14.5 6.25C13.9214 6.25 13.5 5.82857 13.5 5.25ZM2.5 7.25C1.83696 7.25 1.25 7.67143 1.25 8.25C1.25 8.82857 1.83696 9.25 2.5 9.25C3.16304 9.25 3.75 8.82857 3.75 8.25C3.75 7.67143 3.16304 7.25 2.5 7.25ZM4.25 8.25C4.25 7.67143 4.67143 7.25 5.25 7.25C5.82857 7.25 6.25 7.67143 6.25 8.25C6.25 8.82857 5.82857 9.25 5.25 9.25C4.67143 9.25 4.25 8.82857 4.25 8.25ZM8 7.25C7.42143 7.25 7 7.67143 7 8.25C7 8.82857 7.42143 9.25 8 9.25C8.57857 9.25 9 8.82857 9 8.25C9 7.67143 8.57857 7.25 8 7.25ZM10.75 8.25C10.75 7.67143 11.1714 7.25 11.75 7.25C12.3286 7.25 12.75 7.67143 12.75 7.67143 12.75 7.25C11.1714 6.82857 10.75 6.25 10.75 5.25ZM14.5 7.25C13.9214 7.25 13.5 7.67143 13.5 8.25C13.5 8.82857 13.9214 9.25 14.5 9.25C15.0786 9.25 15.5 8.82857 15.5 8.25C15.5 7.67143 15.0786 7.25 14.5 7.25Z" fill="currentColor"/>
-                    </svg>
-                    Sponsor on GitHub
-                </a>
-            </div>
-        </header>
         <main>
             <div class="sidebar">
                 <div id="error-container" class="error-message"></div>
@@ -620,7 +513,7 @@ nav a:hover {
                                 </div>
                             </div>
 
-                            <hr style="border:none; border-top:1px solid #eee; margin:14px 0;">
+                            <hr style="border:none; border-top:1px solid var(--color-border); margin:14px 0;">
 
                             <div class="form-group">
                                 <label for="grid_bbox">Grid Bounding Box: <span class="badge-tag badge-flag">-grid-bbox</span></label>
@@ -741,7 +634,7 @@ nav a:hover {
                         </tr>
                     </thead>
                     <tbody id="job-tbody">
-                        <tr><td colspan="5" style="color:#999; padding:16px;">Loading jobs...</td></tr>
+                        <tr><td colspan="5" style="color:var(--color-text-light); padding:16px;">Loading jobs...</td></tr>
                     </tbody>
                 </table>
                 <div id="pagination-container"></div>
@@ -754,12 +647,6 @@ nav a:hover {
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script>
-    // ---- Sponsor hide ----
-    function hideSponsor() {
-        const el = document.getElementById('sponsor-section');
-        if (el) el.style.display = 'none';
-    }
-
     // ---- Error display ----
     function showError(msg) {
         const el = document.getElementById('error-container');
@@ -1000,7 +887,7 @@ nav a:hover {
     function renderJobs(jobs) {
         const tbody = document.getElementById('job-tbody');
         if (!jobs || jobs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="color:#999; padding:16px;">No jobs yet. Submit the form to start scraping.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--color-text-light); padding:16px;">No jobs yet. Submit the form to start scraping.</td></tr>';
             return;
         }
 
@@ -1039,7 +926,7 @@ nav a:hover {
 
             html += `<tr>
                 <td title="${id}">${shortId}…</td>
-                <td>${name}</td>
+                <td><strong>${name}</strong></td>
                 <td>${date}</td>
                 <td>${statusHtml}</td>
                 <td>${actionsHtml}</td>
@@ -1133,7 +1020,7 @@ nav a:hover {
                     ${address ? `<div class="place-address">${escapeHtml(address)}</div>` : ''}
                     ${phone ? `<div class="place-address">📞 ${escapeHtml(phone)}</div>` : ''}
                     ${rating ? `<div class="place-rating">★ ${escapeHtml(rating)} (${escapeHtml(reviewCount)} reviews)</div>` : ''}
-                    ${link ? `<div><a href="${encodeURI(link)}" target="_blank" style="font-size:12px;color:#2c7be5;">Open on Google Maps ↗</a></div>` : ''}
+                    ${link ? `<div><a href="${encodeURI(link)}" target="_blank" style="font-size:12px;color:#60a5fa;">Open on Google Maps ↗</a></div>` : ''}
                 `;
 
                 if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
@@ -1141,7 +1028,7 @@ nav a:hover {
                     marker.bindPopup(`<strong>${escapeHtml(title)}</strong><br>${escapeHtml(address)}<br>${escapeHtml(phone)}`);
                     item.addEventListener('click', () => {
                         document.querySelectorAll('.place-item').forEach(el => el.style.background = '');
-                        item.style.background = '#e8f0fe';
+                        item.style.background = 'rgba(59, 130, 246, 0.25)';
                         leafletMap.setView([lat, lon], 17);
                         marker.openPopup();
                     });
@@ -1182,7 +1069,6 @@ nav a:hover {
 """
 
 def generate_grid_points(bbox_str, cell_km=1.0):
-    """Parses 'minLat,minLon,maxLat,maxLon' and returns list of (lat, lon) coordinates."""
     try:
         parts = [float(p.strip()) for p in bbox_str.split(",")]
         if len(parts) != 4:
@@ -1222,11 +1108,9 @@ def create_job():
     try:
         payload = request.json or {}
 
-        # Check for grid-bbox option
         grid_bbox = payload.get("grid_bbox")
         grid_cell = float(payload.get("grid_cell") or 1.0)
 
-        # Base payload builder
         def build_req_payload(name, lat, lon):
             return {
                 "name": name,
@@ -1244,7 +1128,6 @@ def create_job():
                 "proxies": payload.get("proxies", [])
             }
 
-        # If grid-bbox is set, generate grid sub-jobs
         if grid_bbox:
             grid_points = generate_grid_points(grid_bbox, grid_cell)
             if not grid_points:
@@ -1265,7 +1148,6 @@ def create_job():
                     created_ids.append(data.get("id"))
             return jsonify({"status": "created", "grid_cells": len(created_ids), "ids": created_ids}), 201
 
-        # Standard Single Job
         cleaned_payload = build_req_payload(payload.get("name"), payload.get("lat"), payload.get("lon"))
         req_data = json.dumps(cleaned_payload).encode("utf-8")
         req = urllib.request.Request(
@@ -1341,7 +1223,6 @@ def export_leadsdb(job_id):
         if not api_key:
             return jsonify({"error": "Missing LeadsDB API key"}), 400
 
-        # Fetch CSV from scraper
         req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
         with urllib.request.urlopen(req) as resp:
             text = resp.read().decode("utf-8", errors="replace")
@@ -1349,7 +1230,6 @@ def export_leadsdb(job_id):
         reader = csv.DictReader(io.StringIO(text))
         items = list(reader)
 
-        # Forward items to LeadsDB API
         leadsdb_url = "https://api.getleadsdb.com/v1/leads"
         leads_req = urllib.request.Request(
             leadsdb_url,
@@ -1364,7 +1244,6 @@ def export_leadsdb(job_id):
                 resp_data = json.loads(resp.read().decode("utf-8"))
                 return jsonify({"status": "exported", "count": len(items), "response": resp_data})
         except urllib.error.HTTPError as he:
-            # Return remote status or mock success if test key
             err_body = he.read().decode("utf-8", errors="replace")
             return jsonify({"error": f"LeadsDB API error ({he.code}): {err_body}", "count": len(items)}), he.code
 
