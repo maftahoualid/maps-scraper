@@ -1,34 +1,19 @@
 #!/usr/bin/env bash
 
-DATA_DIR="$HOME/gmaps-webdata"
-PORT=8080
+# Resolve project root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 case "$1" in
   start)
-    mkdir -p "$DATA_DIR"
-    # Avvia backend engine
-    if ! docker ps --format '{{.Names}}' | grep -q "^gmaps-backend$"; then
-      if docker ps -a --format '{{.Names}}' | grep -q "^gmaps-backend$"; then
-        docker start gmaps-backend > /dev/null
-      else
-        docker run -d --name gmaps-backend -p 127.0.0.1:8081:8080 -v "${DATA_DIR}:/gmapsdata" --restart unless-stopped gosom/google-maps-scraper -web -data-folder /gmapsdata > /dev/null
-      fi
-    fi
-
-    # Avvia frontend UI
-    if ! docker ps --format '{{.Names}}' | grep -q "^gmaps-ui$"; then
-      if docker ps -a --format '{{.Names}}' | grep -q "^gmaps-ui$"; then
-        docker start gmaps-ui > /dev/null
-      else
-        docker run -d --name gmaps-ui --network host --restart unless-stopped -e BACKEND_URL=http://127.0.0.1:8081 gmaps-ui:latest > /dev/null
-      fi
-    fi
+    echo "Avvio di Google Maps Scraper da ${PROJECT_DIR}..."
+    docker compose -f "${PROJECT_DIR}/docker-compose.yml" up -d
     echo "✅ Google Maps Scraper attivo!"
     echo "👉 Apri il browser su: http://localhost:8080"
     ;;
   stop)
     echo "Arresto di Google Maps Scraper..."
-    docker stop gmaps-ui gmaps-backend > /dev/null 2>&1 || true
+    docker compose -f "${PROJECT_DIR}/docker-compose.yml" down
     echo "🛑 Servizio arrestato con successo."
     ;;
   status)
@@ -39,13 +24,13 @@ case "$1" in
     fi
     ;;
   logs)
-    docker logs -f gmaps-backend
+    docker compose -f "${PROJECT_DIR}/docker-compose.yml" logs -f
     ;;
   *)
     echo "Comandi disponibili:"
-    echo "  gmaps start   - Avvia la WebUI"
-    echo "  gmaps stop    - Ferma la WebUI"
-    echo "  gmaps status  - Verifica se è attivo"
-    echo "  gmaps logs    - Mostra i log del motore di scraping in tempo reale"
+    echo "  gmaps start   - Avvia la WebUI e il backend scraper via docker-compose"
+    echo "  gmaps stop    - Ferma i container"
+    echo "  gmaps status  - Verifica lo stato di esecuzione"
+    echo "  gmaps logs    - Mostra i log in tempo reale"
     ;;
 esac
