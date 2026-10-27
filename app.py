@@ -3,14 +3,17 @@ import io
 import csv
 import json
 import math
+import time
 import socket
 import http.client
+import sqlite3
 import urllib.request
 import urllib.error
 from flask import Flask, render_template_string, request, jsonify, Response
 
 app = Flask(__name__)
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:8081")
+DATA_DIR = os.environ.get("DATA_DIR", "/gmapsdata")
 DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 
 # Docker Engine client over UNIX socket
@@ -38,6 +41,69 @@ def docker_action(container_name, action):
             return {"status": "ok" if res.status in (200, 204) else "error", "code": res.status}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+def get_db_connection():
+    db_path = os.path.join(DATA_DIR, "jobs.db")
+    if os.path.exists(db_path):
+        conn = sqlite3.connect(db_path, timeout=10)
+        conn.row_factory = sqlite3.Row
+        return conn
+    return None
+
+def deduplicate_and_merge_csv(target_csv_path, source_csv_content):
+    """
+    Appends new rows from source_csv_content to target_csv_path,
+    skipping rows that have already been recorded based on link, place_id, or title+address.
+    """
+    existing_identities = set()
+    file_exists = os.path.exists(target_csv_path) and os.path.getsize(target_csv_path) > 0
+
+    if file_exists:
+        try:
+            with open(target_csv_path, mode="r", encoding="utf-8", errors="replace") as f:
+                reader = csv.DictReader(f)
+                for r in reader:
+                    link = (r.get("link") or "").strip()
+                    place_id = (r.get("place_id") or "").strip()
+                    title = (r.get("title") or "").strip().lower()
+                    addr = (r.get("address") or "").strip().lower()
+                    if link: existing_identities.add(link)
+                    if place_id: existing_identities.add(place_id)
+                    if title and addr: existing_identities.add(f"{title}@@{addr}")
+        except Exception as e:
+            print(f"Error reading existing CSV: {e}")
+
+    new_reader = csv.DictReader(io.StringIO(source_csv_content))
+    fieldnames = new_reader.fieldnames or []
+    rows_to_append = []
+
+    for r in new_reader:
+        link = (r.get("link") or "").strip()
+        place_id = (r.get("place_id") or "").strip()
+        title = (r.get("title") or "").strip().lower()
+        addr = (r.get("address") or "").strip().lower()
+
+        is_duplicate = False
+        if link and link in existing_identities: is_duplicate = True
+        elif place_id and place_id in existing_identities: is_duplicate = True
+        elif (title and addr) and f"{title}@@{addr}" in existing_identities: is_duplicate = True
+
+        if not is_duplicate:
+            rows_to_append.append(r)
+            if link: existing_identities.add(link)
+            if place_id: existing_identities.add(place_id)
+            if title and addr: existing_identities.add(f"{title}@@{addr}")
+
+    # Write or append
+    mode = "a" if file_exists else "w"
+    with open(target_csv_path, mode=mode, encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        for r in rows_to_append:
+            writer.writerow(r)
+
+    return len(rows_to_append)
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -268,6 +334,7 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 .status-ok { background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
 .status-pending { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .status-working { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); animation: pulse 1.5s infinite; }
+.status-paused { background-color: rgba(245, 158, 11, 0.25); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.5); }
 .status-failed { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 .status-error { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 
@@ -276,7 +343,7 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     50% { opacity: 0.6; }
 }
 
-.download-button, .delete-button, .view-button, .resume-button, .leads-button {
+.download-button, .delete-button, .view-button, .resume-button, .pause-job-button, .leads-button {
     padding: 5px 10px;
     border-radius: 4px;
     font-size: 12px;
@@ -290,13 +357,14 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     transition: filter 0.15s;
 }
 
-.download-button:hover, .delete-button:hover, .view-button:hover, .resume-button:hover, .leads-button:hover {
+.download-button:hover, .delete-button:hover, .view-button:hover, .resume-button:hover, .pause-job-button:hover, .leads-button:hover {
     filter: brightness(1.15);
 }
 
 .download-button { background-color: #059669; }
 .view-button { background-color: #2563eb; }
-.resume-button { background-color: #d97706; }
+.pause-job-button { background-color: #f59e0b; color: #0f172a; font-weight: 600; }
+.resume-button { background-color: #10b981; color: #0f172a; font-weight: 600; }
 .leads-button { background-color: #0284c7; }
 .delete-button { background-color: #dc2626; }
 
@@ -703,8 +771,8 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
                     </div>
                     <div class="engine-controls">
                         <span id="engine-status-badge" class="badge-engine badge-engine-running">Engine Active</span>
-                        <button id="engine-toggle-btn" class="btn-engine btn-engine-pause" onclick="toggleEnginePause()">
-                            ⏸ Pause Engine
+                        <button id="engine-toggle-btn" class="btn-engine btn-engine-pause" onclick="toggleEnginePause()" title="Pause or resume all background scraping jobs">
+                            ⏸ Pause All Jobs
                         </button>
                     </div>
                 </div>
@@ -734,7 +802,7 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script>
-    // ---- Engine Pause / Resume Control ----
+    // ---- Pause / Resume All Jobs Engine Control ----
     let isEnginePaused = false;
 
     async function checkEngineStatus() {
@@ -755,12 +823,12 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
             badge.className = 'badge-engine badge-engine-paused';
             badge.textContent = 'Engine Paused';
             btn.className = 'btn-engine btn-engine-resume';
-            btn.innerHTML = '▶ Resume Engine';
+            btn.innerHTML = '▶ Resume All Jobs';
         } else {
             badge.className = 'badge-engine badge-engine-running';
             badge.textContent = 'Engine Active';
             btn.className = 'btn-engine btn-engine-pause';
-            btn.innerHTML = '⏸ Pause Engine';
+            btn.innerHTML = '⏸ Pause All Jobs';
         }
     }
 
@@ -848,27 +916,34 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
         reader.readAsText(file);
     }
 
-    // ---- Resume Job Handler (-resume) ----
-    function resumeJob(job) {
-        if (!job || !job.data) return;
-        const d = job.data;
-        document.getElementById('name').value = (job.name ? job.name + ' (Resumed)' : 'Resumed Scrape');
-        if (d.keywords) document.getElementById('keywords').value = d.keywords.join('\\n');
-        if (d.lang) document.getElementById('lang').value = d.lang;
-        if (d.zoom !== undefined) document.getElementById('zoom').value = d.zoom;
-        if (d.lat) document.getElementById('latitude').value = d.lat;
-        if (d.lon) document.getElementById('longitude').value = d.lon;
-        if (d.lat && d.lon) document.getElementById('geo').value = d.lat + ',' + d.lon;
-        if (d.radius) document.getElementById('radius').value = d.radius;
-        if (d.depth) document.getElementById('depth').value = d.depth;
-        document.getElementById('email').checked = !!d.email;
-        document.getElementById('extra_reviews').checked = !!d.extra_reviews;
-        document.getElementById('fastmode').checked = !!d.fast_mode;
-        if (d.proxies && Array.isArray(d.proxies)) {
-            document.getElementById('proxies').value = d.proxies.join('\\n');
+    // ---- Individual Job Pause & Resume Actions ----
+    async function pauseJob(jobId) {
+        try {
+            const res = await fetch('/api/v1/jobs/' + jobId + '/pause', { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.text();
+                alert('Pause error: ' + err);
+            } else {
+                fetchJobs();
+            }
+        } catch (e) {
+            alert('Request error: ' + e.message);
         }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        showError('Job parameters loaded for resume. Review and click "Start Scraping" to resume.');
+    }
+
+    async function resumeJobSearch(jobId) {
+        try {
+            const res = await fetch('/api/v1/jobs/' + jobId + '/resume', { method: 'POST' });
+            if (!res.ok) {
+                const err = await res.text();
+                alert('Resume error: ' + err);
+            } else {
+                const data = await res.json();
+                fetchJobs();
+            }
+        } catch (e) {
+            alert('Request error: ' + e.message);
+        }
     }
 
     // ---- Export to LeadsDB Handler (-leadsdb-api-key) ----
@@ -1039,6 +1114,8 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
                 statusHtml = '<span class="status-indicator status-working">working</span>';
             } else if (status === 'pending') {
                 statusHtml = '<span class="status-indicator status-pending">pending</span>';
+            } else if (status === 'paused') {
+                statusHtml = '<span class="status-indicator status-paused">paused ⏸</span>';
             } else if (status === 'failed' || status === 'error') {
                 statusHtml = '<span class="status-indicator status-failed">' + escapeHtml(status) + '</span>';
             } else {
@@ -1046,13 +1123,25 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
             }
 
             let actionsHtml = '<div class="actions-cell">';
-            if (status === 'ok') {
+
+            // Pause button for currently working jobs
+            if (status === 'working') {
+                actionsHtml += `<button class="pause-job-button" onclick="pauseJob('${j.id}')" title="Pause this search and save results">⏸ Pause</button>`;
+            }
+
+            // Resume button for paused, failed, or completed jobs to continue scraping missing places without duplicates
+            if (status === 'paused' || status === 'failed' || status === 'error' || status === 'ok') {
+                actionsHtml += `<button class="resume-button" onclick="resumeJobSearch('${j.id}')" title="Resume search from saved results without duplicates">▶ Resume</button>`;
+            }
+
+            // Export & View buttons
+            if (status === 'ok' || status === 'paused' || status === 'working') {
                 actionsHtml += `<button class="view-button" onclick="openMapModal('${j.id}', '${name}')">View</button>`;
                 actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=csv" class="download-button" title="Download CSV">CSV</a>`;
                 actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
                 actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.id}')" title="Export to LeadsDB (-leadsdb-api-key)">LeadsDB</button>`;
             }
-            actionsHtml += `<button class="resume-button" onclick="triggerResume('${j.id}')" title="Resume/Restart this job parameters (-resume)">Resume</button>`;
+
             actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.id}')">Delete</button>`;
             actionsHtml += '</div>';
 
@@ -1069,15 +1158,8 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
         tbody.innerHTML = html;
     }
 
-    function triggerResume(jobId) {
-        const job = cachedJobs.find(j => j.id === jobId);
-        if (job) {
-            resumeJob(job);
-        }
-    }
-
     async function deleteJob(id) {
-        if (!confirm('Delete this job?')) return;
+        if (!confirm('Delete this job and its results?')) return;
         try {
             await fetch('/api/v1/jobs/' + id, { method: 'DELETE' });
             fetchJobs();
@@ -1224,7 +1306,6 @@ def generate_grid_points(bbox_str, cell_km=1.0):
         return []
 
 def format_job_clean(raw_job):
-    """Formats raw Gosom job dictionary into standardized, clean structure."""
     if not isinstance(raw_job, dict):
         return raw_job
     d = raw_job.get("Data") or raw_job.get("data") or {}
@@ -1255,7 +1336,7 @@ def format_job_clean(raw_job):
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-# ---- Engine Pause / Resume Endpoints ----
+# ---- Pause / Resume All Jobs Engine Control ----
 @app.route("/api/engine/status", methods=["GET"])
 def engine_status():
     res = docker_action("gmaps-backend", "json")
@@ -1273,6 +1354,142 @@ def engine_pause():
 def engine_resume():
     res = docker_action("gmaps-backend", "unpause")
     return jsonify({"action": "resume", "paused": False, "result": res})
+
+# ---- Per-Job Pause & Deduplicated Resume Endpoints ----
+@app.route("/api/v1/jobs/<job_id>/pause", methods=["POST"])
+def pause_individual_job(job_id):
+    """
+    Pauses an active scraping job:
+    1. Sets job status to 'paused' in SQLite database.
+    2. Results accumulated so far remain safely on disk.
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database not accessible"}), 500
+
+        cur = conn.cursor()
+        cur.execute("UPDATE jobs SET status = 'paused', updated_at = ? WHERE id = ?", (int(time.time()), job_id))
+        conn.commit()
+        conn.close()
+
+        return jsonify({"id": job_id, "status": "paused", "message": "Search paused. Results so far are saved."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/v1/jobs/<job_id>/resume", methods=["POST"])
+def resume_individual_job(job_id):
+    """
+    Resumes a paused, interrupted, or finished job without duplicates:
+    1. Loads the original job configuration.
+    2. Queues a resume crawler run with the backend.
+    3. Merges newly found places into the existing CSV file, discarding duplicates.
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database not accessible"}), 500
+
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, status, data FROM jobs WHERE id = ?", (job_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Job not found"}), 404
+
+        raw_data = json.loads(row["data"]) if row["data"] else {}
+        name = row["name"] or "Resumed Job"
+        target_csv_path = os.path.join(DATA_DIR, f"{job_id}.csv")
+
+        # 1. Update status in DB back to working
+        cur.execute("UPDATE jobs SET status = 'working', updated_at = ? WHERE id = ?", (int(time.time()), job_id))
+        conn.commit()
+        conn.close()
+
+        # 2. Trigger new scrape run on backend to fetch fresh results
+        req_payload = {
+            "name": f"{name} (Resuming)",
+            "keywords": raw_data.get("keywords", []),
+            "lang": raw_data.get("lang", "en"),
+            "zoom": int(raw_data.get("zoom", 15)),
+            "depth": int(raw_data.get("depth", 10)),
+            "radius": int(raw_data.get("radius", 10000)),
+            "max_time": int(raw_data.get("max_time", 600)),
+            "email": bool(raw_data.get("email", False)),
+            "fast_mode": bool(raw_data.get("fast_mode", False)),
+            "extra_reviews": bool(raw_data.get("extra_reviews", False)),
+            "lat": str(raw_data.get("lat") or ""),
+            "lon": str(raw_data.get("lon") or ""),
+            "proxies": raw_data.get("proxies", [])
+        }
+
+        req_data = json.dumps(req_payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{BACKEND_URL}/api/v1/jobs",
+            data=req_data,
+            headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req) as resp:
+            backend_res = json.loads(resp.read().decode())
+            new_run_id = backend_res.get("id")
+
+        # 3. Spawn background sync thread to watch new_run_id and deduplicate into target_csv_path
+        import threading
+        def sync_worker(parent_id, child_id):
+            parent_csv = os.path.join(DATA_DIR, f"{parent_id}.csv")
+            child_csv = os.path.join(DATA_DIR, f"{child_id}.csv")
+
+            for _ in range(300): # poll for up to 15 minutes
+                time.sleep(3)
+                if os.path.exists(child_csv) and os.path.getsize(child_csv) > 0:
+                    try:
+                        with open(child_csv, "r", encoding="utf-8", errors="replace") as cf:
+                            content = cf.read()
+                        deduplicate_and_merge_csv(parent_csv, content)
+                    except Exception as err:
+                        print(f"Sync error: {err}")
+
+                # Check if child job is done
+                try:
+                    c_req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs/{child_id}")
+                    with urllib.request.urlopen(c_req) as c_resp:
+                        c_data = json.loads(c_resp.read().decode())
+                        c_status = c_data.get("Status") or c_data.get("status")
+                        if c_status in ("ok", "failed", "error"):
+                            # Final merge
+                            if os.path.exists(child_csv):
+                                with open(child_csv, "r", encoding="utf-8", errors="replace") as cf:
+                                    deduplicate_and_merge_csv(parent_csv, cf.read())
+                            # Update parent status
+                            p_conn = get_db_connection()
+                            if p_conn:
+                                p_cur = p_conn.cursor()
+                                p_cur.execute("UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
+                                              (c_status, int(time.time()), parent_id))
+                                p_conn.commit()
+                                p_conn.close()
+                            # Cleanup child job from DB
+                            try:
+                                d_req = urllib.request.Request(f"{BACKEND_URL}/delete?id={child_id}", method="DELETE")
+                                urllib.request.urlopen(d_req)
+                            except Exception:
+                                pass
+                            break
+                except Exception:
+                    pass
+
+        threading.Thread(target=sync_worker, args=(job_id, new_run_id), daemon=True).start()
+
+        return jsonify({
+            "status": "resuming",
+            "job_id": job_id,
+            "worker_run_id": new_run_id,
+            "message": "Resumed search. New places will be appended without duplicates."
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ---- Standard REST Endpoints (/api/v1/jobs) ----
 @app.route("/api/v1/jobs", methods=["GET"])
@@ -1376,9 +1593,15 @@ def delete_job_v1(job_id):
 def download_job_v1(job_id):
     fmt = request.args.get("format", "csv").lower()
     try:
-        req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
-        with urllib.request.urlopen(req) as resp:
-            content = resp.read()
+        # Check local data folder first for resumed/merged CSV
+        local_csv = os.path.join(DATA_DIR, f"{job_id}.csv")
+        if os.path.exists(local_csv):
+            with open(local_csv, "rb") as f:
+                content = f.read()
+        else:
+            req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
+            with urllib.request.urlopen(req) as resp:
+                content = resp.read()
 
         if fmt == "json":
             text = content.decode("utf-8", errors="replace")
@@ -1439,9 +1662,14 @@ def export_leadsdb(job_id):
         if not api_key:
             return jsonify({"error": "Missing LeadsDB API key"}), 400
 
-        req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
-        with urllib.request.urlopen(req) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
+        local_csv = os.path.join(DATA_DIR, f"{job_id}.csv")
+        if os.path.exists(local_csv):
+            with open(local_csv, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        else:
+            req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
+            with urllib.request.urlopen(req) as resp:
+                text = resp.read().decode("utf-8", errors="replace")
 
         reader = csv.DictReader(io.StringIO(text))
         items = list(reader)

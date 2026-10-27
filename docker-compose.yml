@@ -16,7 +16,9 @@ services:
     network_mode: "host"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/gmapsdata
     environment:
       - BACKEND_URL=http://127.0.0.1:8081
+      - DATA_DIR=/gmapsdata
     depends_on:
       - gmaps-backend
