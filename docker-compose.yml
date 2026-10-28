@@ -20,5 +20,6 @@ services:
     environment:
       - BACKEND_URL=http://127.0.0.1:8081
       - DATA_DIR=/gmapsdata
+      - HOST_DATA_DIR=/home/wally/Documenti/GitHub/maps-scraper/data
     depends_on:
       - gmaps-backend
