@@ -10,15 +10,18 @@ Consente di raccogliere lead, dettagli aziendali, contatti (email, numeri di tel
 
 ### 1. Nuova Ricerca & Mappa Griglia Interattiva
 Modalità Pro attiva di default con tutte le opzioni avanzate espanse, stima dinamica della superficie coperta in $km^2$ in base allo Zoom e visualizzazione del reticolo delle celle della Bounding Box.
-![Ricerca e Mappa Griglia](docs/screenshots/01.png)
+![Ricerca e Mappa Griglia 1](docs/screenshots/01.png)
+![Ricerca e Mappa Griglia 2](docs/screenshots/02.png)
+![Ricerca e Mappa Griglia 3](docs/screenshots/03.png)
+
 
 ### 2. Risultati e Monitoraggio Job
 Tabella con stato in tempo reale, pulsanti di controllo (**Resume / Pause sul medesimo Job ID senza duplicati**) ed esportazione diretta.
-![Tabella Risultati](docs/screenshots/02.png)
+![Tabella Risultati](docs/screenshots/04.png)
 
 ### 3. Modale Mappa Interattiva (Zero Lag con Clustering)
 Visualizzazione fluida a 60fps con rendering accelerato su Canvas (`Leaflet.markercluster` + GPU Canvas) capace di gestire oltre 5.000–10.000 punti senza freeze del browser.
-![Mappa Interattiva Risultati](docs/screenshots/03.png)
+![Mappa Interattiva Risultati](docs/screenshots/05.png)
 
 ---
 
