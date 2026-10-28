@@ -177,10 +177,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Google Maps Scraper</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <style>
 :root {
     --color-background: #0f172a;
@@ -1286,6 +1284,7 @@ body:not(.pro-mode-active) .pro-field {
     <div id="map-modal-container"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
     <script>
     // ---- Pause / Resume All Jobs Engine Control ----
     let isEnginePaused = false;
@@ -1304,16 +1303,13 @@ body:not(.pro-mode-active) .pro-field {
         isEnginePaused = paused;
         const badge = document.getElementById('engine-status-badge');
         const btn = document.getElementById('engine-toggle-btn');
-        if (paused) {
-            badge.className = 'badge-engine badge-engine-paused';
-            badge.textContent = 'Engine Paused';
-            btn.className = 'btn-engine btn-engine-resume';
-            btn.innerHTML = '▶ Resume All Jobs';
-        } else {
-            badge.className = 'badge-engine badge-engine-running';
-            badge.textContent = 'Engine Active';
-            btn.className = 'btn-engine btn-engine-pause';
-            btn.innerHTML = '⏸ Pause All Jobs';
+        if (badge) {
+            badge.className = paused ? 'badge-engine badge-engine-paused' : 'badge-engine badge-engine-running';
+            badge.textContent = paused ? 'Engine Paused' : 'Engine Active';
+        }
+        if (btn) {
+            btn.className = paused ? 'btn-engine btn-engine-resume' : 'btn-engine btn-engine-pause';
+            btn.innerHTML = paused ? '▶ Resume All Jobs' : '⏸ Pause All Jobs';
         }
     }
 
