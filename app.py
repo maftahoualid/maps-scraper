@@ -1007,11 +1007,16 @@ body:not(.pro-mode-active) .pro-field {
                             <legend>Job Details</legend>
                             <div class="form-group">
                                 <label for="name">Job Name:</label>
-                                <input type="text" id="name" name="name" value="" placeholder="es. Ristoranti Milano" autofocus>
+                                <input type="text" id="name" name="name" value="Ristoranti Veronesi" placeholder="es. Ristoranti Milano" autofocus>
                             </div>
                             <div class="form-group">
                                 <label for="keywords">Keywords / Queries: (one per line)</label>
-                                <textarea id="keywords" name="keywords" rows="4" placeholder="ristoranti verona centro&#10;pizzerie verona"></textarea>
+                                <textarea id="keywords" name="keywords" rows="6" placeholder="ristoranti verona centro&#10;pizzerie verona">ristorante
+pizzeria
+bar
+pub
+gelateria
+cucina</textarea>
                             </div>
                             <div class="form-group pro-field">
                                 <label for="input_file">Or upload Queries Input File: <span class="badge-tag badge-flag">-input</span></label>
@@ -1030,32 +1035,32 @@ body:not(.pro-mode-active) .pro-field {
                             <fieldset>
                                 <div class="form-group">
                                     <label for="geo">Geo Coordinates (Lat,Lon): <span class="badge-tag badge-flag">-geo</span></label>
-                                    <input type="text" id="geo" placeholder="e.g. 45.4415,10.9972" onchange="parseGeoInput(this.value)">
+                                    <input type="text" id="geo" value="45.3274,11.078924" placeholder="e.g. 45.4415,10.9972" onchange="parseGeoInput(this.value)">
                                     <p class="text-muted"><small>Format: latitude,longitude</small></p>
                                 </div>
 
                                 <div class="grid-2">
                                     <div class="form-group">
                                         <label for="latitude">Latitude:</label>
-                                        <input type="number" step="0.000000000000001" id="latitude" name="latitude" value="0">
+                                        <input type="number" step="0.000000000000001" id="latitude" name="latitude" value="45.3274">
                                     </div>
                                     <div class="form-group">
                                         <label for="longitude">Longitude:</label>
-                                        <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="0">
+                                        <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="11.078924">
                                     </div>
                                 </div>
 
                                 <div class="grid-2">
                                     <div class="form-group">
                                         <label for="zoom">Zoom (0-21): <span class="badge-tag badge-flag">-zoom</span></label>
-                                        <input type="number" id="zoom" name="zoom" value="15" min="0" max="21" oninput="updateZoomAreaEstimate()">
+                                        <input type="number" id="zoom" name="zoom" value="13" min="0" max="21" oninput="updateZoomAreaEstimate()">
                                         <p class="text-muted" id="zoom-estimate" style="color:#60a5fa; font-weight:500; font-size:12px; margin-top:4px;">
-                                            📐 Superficie coperta: ~1.5 - 6 km² (Livello Quartiere)
+                                            📐 Superficie coperta: ~15 - 40 km² (Città media / Settore urbano)
                                         </p>
                                     </div>
                                     <div class="form-group">
                                         <label for="radius">Radius (meters): <span class="badge-tag badge-flag">-radius</span></label>
-                                        <input type="number" id="radius" name="radius" value="10000">
+                                        <input type="number" id="radius" name="radius" value="20000">
                                     </div>
                                 </div>
 
@@ -1149,7 +1154,7 @@ body:not(.pro-mode-active) .pro-field {
                                 <div class="grid-2">
                                     <div class="form-group">
                                         <label for="depth">Depth (scrolls): <span class="badge-tag badge-flag">-depth</span></label>
-                                        <input type="number" step="1" id="depth" name="depth" value="10">
+                                        <input type="number" step="1" id="depth" name="depth" value="100">
                                     </div>
                                     <div class="form-group">
                                         <label for="max_places">Limite Locali (Max Places):</label>
@@ -1157,7 +1162,7 @@ body:not(.pro-mode-active) .pro-field {
                                     </div>
                                     <div class="form-group">
                                         <label for="maxtime">Max job time:</label>
-                                        <input type="text" id="maxtime" name="maxtime" value="10m">
+                                        <input type="text" id="maxtime" name="maxtime" value="60000s">
                                     </div>
                                 </div>
 
@@ -2311,59 +2316,124 @@ body:not(.pro-mode-active) .pro-field {
         }
     }
 
-    // ---- Merge Jobs Modal ----
+    // ---- Merge Jobs Modal (Multi-Job Checkbox & Quick Filter) ----
     function openMergeModal() {
         const existing = document.getElementById('__merge-modal');
         if (existing) existing.remove();
 
-        let optionsHtml = '';
-        (cachedJobs || []).forEach(j => {
+        const jobs = cachedJobs || [];
+        let itemsHtml = '';
+        jobs.forEach(j => {
             const count = j.places_count != null ? j.places_count : 0;
-            optionsHtml += `<option value="${j.id}">[${count} locali] ${escapeHtml(j.name)} (${j.id.substring(0,8)}...)</option>`;
+            const status = j.status || 'pending';
+            const shortId = (j.id || '').substring(0, 8);
+            const statusBadge = (status === 'ok' || status === 'paused')
+                ? `<span style="background:rgba(16,185,129,0.15);color:#34d399;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;">${status}</span>`
+                : `<span style="background:rgba(148,163,184,0.15);color:#94a3b8;padding:1px 6px;border-radius:4px;font-size:11px;">${status}</span>`;
+
+            itemsHtml += `
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;cursor:pointer;user-select:none;transition:background 0.15s;" onmouseover="this.style.background='#1a2436'" onmouseout="this.style.background='#0f172a'">
+                    <input type="checkbox" class="merge-job-cb" data-status="${status}" value="${j.id}" onchange="updateMergeCounter()" style="width:16px;height:16px;cursor:pointer;accent-color:var(--color-primary);">
+                    <div style="flex:1;min-width:0;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                        <span style="font-size:13px;font-weight:500;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(j.name)}">${escapeHtml(j.name)}</span>
+                        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                            <span style="background:rgba(56,189,248,0.12);color:#38bdf8;padding:1px 6px;border-radius:4px;font-size:11.5px;font-family:monospace;">${count} loc.</span>
+                            ${statusBadge}
+                            <span style="color:#64748b;font-size:11px;font-family:monospace;">${shortId}</span>
+                        </div>
+                    </div>
+                </label>`;
         });
 
         const modal = document.createElement('div');
         modal.id = '__merge-modal';
         modal.className = 'map-modal';
         modal.innerHTML = `
-            <div class="map-modal-content" style="max-width:550px;height:auto;max-height:85vh;padding:24px;border-radius:10px;background:#1e293b;border:1px solid #334155;color:#f1f5f9;">
-                <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:12px;margin-bottom:18px;">
-                    <h3 style="margin:0;font-size:1.15rem;color:#38bdf8;">🔀 Unisci Due Ricerche (Merge)</h3>
+            <div class="map-modal-content" style="max-width:620px;height:auto;max-height:90vh;padding:24px;border-radius:10px;background:#1e293b;border:1px solid #334155;color:#f1f5f9;display:flex;flex-direction:column;">
+                <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:12px;margin-bottom:14px;">
+                    <div>
+                        <h3 style="margin:0;font-size:1.18rem;color:#38bdf8;">🔀 Unisci Ricerche Multiple (Merge Deduplicato)</h3>
+                        <p style="margin:4px 0 0 0;font-size:12px;color:#94a3b8;">Unisci 2 o più ricerche eliminando automaticamente i locali duplicati.</p>
+                    </div>
                     <button class="map-modal-close" onclick="closeMergeModal()" style="font-size:24px;cursor:pointer;background:none;border:none;color:#94a3b8;">&times;</button>
                 </div>
-                <div style="display:flex;flex-direction:column;gap:15px;">
-                    <div>
-                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Prima Ricerca (Job 1):</label>
-                        <select id="merge-job-1" style="width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
-                            ${optionsHtml}
-                        </select>
+                
+                <div style="display:flex;flex-direction:column;gap:14px;overflow-y:auto;padding-right:4px;">
+                    <!-- Quick Select Action Buttons -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                        <span style="font-size:12.5px;font-weight:600;color:#94a3b8;">Seleziona le ricerche da unire:</span>
+                        <div style="display:flex;gap:6px;">
+                            <button type="button" onclick="selectMergeJobsByStatus('ok,paused')" style="padding:4px 10px;font-size:11.5px;background:#0369a1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                                ✅ Tutti con stato OK/PAUSED
+                            </button>
+                            <button type="button" onclick="toggleAllMergeJobs(true)" style="padding:4px 8px;font-size:11.5px;background:#334155;color:#f1f5f9;border:none;border-radius:4px;cursor:pointer;">
+                                Tutti
+                            </button>
+                            <button type="button" onclick="toggleAllMergeJobs(false)" style="padding:4px 8px;font-size:11.5px;background:#334155;color:#f1f5f9;border:none;border-radius:4px;cursor:pointer;">
+                                Nessuno
+                            </button>
+                        </div>
                     </div>
-                    <div>
-                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Seconda Ricerca (Job 2):</label>
-                        <select id="merge-job-2" style="width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
-                            ${optionsHtml}
-                        </select>
+
+                    <!-- Scrollable list of jobs with checkboxes -->
+                    <div id="merge-jobs-list" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:8px;background:#0b1120;border:1px solid #334155;border-radius:8px;">
+                        ${itemsHtml || '<div style="color:#64748b;text-align:center;padding:16px;">Nessuna ricerca disponibile.</div>'}
                     </div>
-                    <div>
-                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Nome della nuova ricerca unita:</label>
-                        <input type="text" id="merge-job-name" placeholder="es. Ristoranti Totali (Uniti)" style="width:100%;box-sizing:border-box;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
+
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#94a3b8;">
+                        <span id="merge-selected-counter" style="color:#38bdf8;font-weight:600;">0 ricerche selezionate</span>
                     </div>
+
+                    <div>
+                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Nome della nuova ricerca unita (opzionale):</label>
+                        <input type="text" id="merge-job-name" placeholder="es. Ristoranti Totali (Uniti) o lascia vuoto per nome automatico" style="width:100%;box-sizing:border-box;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
+                    </div>
+
                     <div style="font-size:12px;color:#94a3b8;background:rgba(2,132,199,0.1);border:1px solid rgba(2,132,199,0.3);border-radius:6px;padding:10px;">
-                        ℹ️ L'unione creerà un nuovo Job e un nuovo file locale CSV contenente tutti i locali delle due ricerche, rimuovendo automaticamente tutti i duplicati (stesso link, place_id o nome+indirizzo).
+                        ℹ️ L'unione creerà un nuovo Job e un nuovo file CSV combinando tutti i record dei job scelti, eliminando i duplicati basandosi su link, place_id e nome+indirizzo.
                     </div>
-                    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+
+                    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
                         <button type="button" onclick="closeMergeModal()" style="padding:8px 16px;background:#334155;color:#f1f5f9;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Annulla</button>
-                        <button type="button" id="btn-confirm-merge" onclick="submitMergeJobs()" style="padding:8px 18px;background:var(--color-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Unisci Ricerche</button>
+                        <button type="button" id="btn-confirm-merge" onclick="submitMergeJobs()" style="padding:8px 20px;background:var(--color-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                            <span>🔀 Unisci Selezionati</span>
+                        </button>
                     </div>
                 </div>
             </div>`;
         modal.addEventListener('click', (e) => { if (e.target === modal) closeMergeModal(); });
         document.body.appendChild(modal);
 
-        // Pre-select second option if available
-        const s2 = document.getElementById('merge-job-2');
-        if (s2 && s2.options.length > 1) {
-            s2.selectedIndex = 1;
+        updateMergeCounter();
+    }
+
+    function toggleAllMergeJobs(select) {
+        document.querySelectorAll('.merge-job-cb').forEach(cb => {
+            cb.checked = select;
+        });
+        updateMergeCounter();
+    }
+
+    function selectMergeJobsByStatus(statusListStr) {
+        const statuses = statusListStr.split(',').map(s => s.trim().toLowerCase());
+        document.querySelectorAll('.merge-job-cb').forEach(cb => {
+            const st = (cb.dataset.status || '').toLowerCase();
+            cb.checked = statuses.includes(st);
+        });
+        updateMergeCounter();
+    }
+
+    function updateMergeCounter() {
+        const cbs = Array.from(document.querySelectorAll('.merge-job-cb'));
+        const selected = cbs.filter(cb => cb.checked);
+        const counterEl = document.getElementById('merge-selected-counter');
+        const btn = document.getElementById('btn-confirm-merge');
+        if (counterEl) {
+            counterEl.textContent = `${selected.length} di ${cbs.length} ricerche selezionate`;
+        }
+        if (btn) {
+            btn.disabled = selected.length < 2;
+            btn.style.opacity = selected.length < 2 ? '0.6' : '1';
         }
     }
 
@@ -2373,12 +2443,12 @@ body:not(.pro-mode-active) .pro-field {
     }
 
     async function submitMergeJobs() {
-        const j1 = document.getElementById('merge-job-1').value;
-        const j2 = document.getElementById('merge-job-2').value;
-        const name = document.getElementById('merge-job-name').value.trim();
+        const selectedCbs = Array.from(document.querySelectorAll('.merge-job-cb')).filter(cb => cb.checked);
+        const jobIds = selectedCbs.map(cb => cb.value);
+        const name = (document.getElementById('merge-job-name')?.value || '').trim();
 
-        if (j1 === j2) {
-            alert('Seleziona due ricerche distinte da unire.');
+        if (jobIds.length < 2) {
+            alert('Seleziona almeno 2 ricerche distinte da unire.');
             return;
         }
 
@@ -2390,7 +2460,7 @@ body:not(.pro-mode-active) .pro-field {
             const res = await fetch('/api/v1/jobs/merge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ job_id_1: j1, job_id_2: j2, name: name })
+                body: JSON.stringify({ job_ids: jobIds, name: name })
             });
             const data = await res.json();
             if (!res.ok) {
@@ -2405,7 +2475,7 @@ body:not(.pro-mode-active) .pro-field {
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = 'Unisci Ricerche';
+                btn.textContent = '🔀 Unisci Selezionati';
             }
         }
     }
@@ -2495,13 +2565,28 @@ def pause_individual_job(job_id):
     """
     Pauses an active scraping job:
     1. Sets job status to 'paused' in SQLite database.
-    2. Stops any running CLI runner container for this job.
-    3. Results accumulated so far remain safely in <job_id>.csv on disk.
+    2. Cancels job in gmaps-backend if running there.
+    3. Stops any running CLI runner container for this job.
+    4. Results accumulated so far remain safely in <job_id>.csv on disk.
     """
     try:
-        # Stop background runner container if one is running
+        # 1. Stop background CLI runner container if one is running
         stop_job_runner(job_id)
 
+        # 2. Cancel/Stop job in gmaps-backend if active there
+        try:
+            del_req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs/{job_id}", method="DELETE")
+            urllib.request.urlopen(del_req, timeout=3)
+        except Exception:
+            pass
+
+        try:
+            del_req2 = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
+            urllib.request.urlopen(del_req2, timeout=3)
+        except Exception:
+            pass
+
+        # 3. Update status to 'paused' in SQLite
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Database not accessible"}), 500
@@ -2790,71 +2875,81 @@ def create_job():
 @app.route("/api/v1/jobs/merge", methods=["POST"])
 def merge_jobs_endpoint():
     """
-    Merges two existing jobs into a new job and local CSV file without duplicates.
+    Merges multiple existing jobs into a new job and local CSV file without duplicates.
+    Supports either job_ids: [id1, id2, ...] or backwards-compatible job_id_1 & job_id_2.
     """
     try:
         body = request.json or {}
-        job_id_1 = (body.get("job_id_1") or "").strip()
-        job_id_2 = (body.get("job_id_2") or "").strip()
+        job_ids = body.get("job_ids") or []
+        if not job_ids:
+            # Fallback backwards-compatibility
+            j1 = (body.get("job_id_1") or "").strip()
+            j2 = (body.get("job_id_2") or "").strip()
+            if j1 and j2:
+                job_ids = [j1, j2]
+
+        # Clean and deduplicate list of IDs while preserving order
+        clean_job_ids = []
+        for jid in job_ids:
+            jid = str(jid).strip()
+            if jid and jid not in clean_job_ids:
+                clean_job_ids.append(jid)
+
         custom_name = (body.get("name") or "").strip()
 
-        if not job_id_1 or not job_id_2:
-            return jsonify({"error": "Entrambi i Job (Job 1 e Job 2) sono richiesti per l'unione."}), 400
-        if job_id_1 == job_id_2:
-            return jsonify({"error": "Seleziona due Job differenti da unire."}), 400
+        if len(clean_job_ids) < 2:
+            return jsonify({"error": "Seleziona almeno 2 ricerche differenti da unire."}), 400
 
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Database non accessibile."}), 500
 
         cur = conn.cursor()
-        cur.execute("SELECT id, name, data FROM jobs WHERE id IN (?, ?)", (job_id_1, job_id_2))
+        placeholders = ",".join("?" for _ in clean_job_ids)
+        cur.execute(f"SELECT id, name, data, status FROM jobs WHERE id IN ({placeholders})", clean_job_ids)
         rows = cur.fetchall()
         jobs_map = {r["id"]: r for r in rows}
 
-        if job_id_1 not in jobs_map or job_id_2 not in jobs_map:
+        valid_jobs = [jobs_map[jid] for jid in clean_job_ids if jid in jobs_map]
+        if len(valid_jobs) < 2:
             conn.close()
-            return jsonify({"error": "Uno o entrambi i job specificati non sono stati trovati."}), 404
-
-        j1 = jobs_map[job_id_1]
-        j2 = jobs_map[job_id_2]
+            return jsonify({"error": "Meno di 2 job validi trovati nel database tra quelli selezionati."}), 404
 
         new_job_id = str(uuid.uuid4())
-        new_name = custom_name if custom_name else f"Unione: {j1['name']} + {j2['name']}"
+        if custom_name:
+            new_name = custom_name
+        else:
+            names_summary = " + ".join([j["name"] for j in valid_jobs[:3]])
+            if len(valid_jobs) > 3:
+                names_summary += f" + altri {len(valid_jobs) - 3}"
+            new_name = f"Unione ({len(valid_jobs)} ricerche): {names_summary}"
 
-        # Combine keywords and metadata
-        d1 = json.loads(j1["data"]) if j1["data"] else {}
-        d2 = json.loads(j2["data"]) if j2["data"] else {}
+        # Combine keywords and metadata from all jobs
+        combined_keywords = []
+        combined_data = {}
+        for idx, j in enumerate(valid_jobs):
+            dj = json.loads(j["data"]) if j["data"] else {}
+            if idx == 0:
+                combined_data = dict(dj)
+            kw = dj.get("keywords") or []
+            for k in kw:
+                if k not in combined_keywords:
+                    combined_keywords.append(k)
 
-        kw1 = d1.get("keywords") or []
-        kw2 = d2.get("keywords") or []
-        combined_keywords = list(dict.fromkeys(kw1 + kw2))
-
-        combined_data = dict(d1)
         combined_data["keywords"] = combined_keywords
-        combined_data["merged_from"] = [job_id_1, job_id_2]
+        combined_data["merged_from"] = [j["id"] for j in valid_jobs]
 
         new_target_csv = os.path.join(DATA_DIR, f"{new_job_id}.csv")
 
-        # Read CSV 1
-        csv1_path = os.path.join(DATA_DIR, f"{job_id_1}.csv")
-        csv1_content = ""
-        if os.path.exists(csv1_path):
-            with open(csv1_path, "r", encoding="utf-8", errors="replace") as f:
-                csv1_content = f.read()
-
-        # Read CSV 2
-        csv2_path = os.path.join(DATA_DIR, f"{job_id_2}.csv")
-        csv2_content = ""
-        if os.path.exists(csv2_path):
-            with open(csv2_path, "r", encoding="utf-8", errors="replace") as f:
-                csv2_content = f.read()
-
-        # Merge deduplicated into new_target_csv
-        if csv1_content:
-            deduplicate_and_merge_csv(new_target_csv, csv1_content)
-        if csv2_content:
-            deduplicate_and_merge_csv(new_target_csv, csv2_content)
+        # Merge CSV from each job
+        for j in valid_jobs:
+            jid = j["id"]
+            csv_path = os.path.join(DATA_DIR, f"{jid}.csv")
+            if os.path.exists(csv_path):
+                with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
+                    csv_content = f.read()
+                if csv_content:
+                    deduplicate_and_merge_csv(new_target_csv, csv_content)
 
         # Insert new record into jobs.db
         now_ts = int(time.time())
@@ -2869,7 +2964,7 @@ def merge_jobs_endpoint():
 
         return jsonify({
             "status": "ok",
-            "message": f"Job unito con successo! {places_count} locali unici estratti.",
+            "message": f"Unione completata con successo! {places_count} locali unici estratti da {len(valid_jobs)} ricerche.",
             "job": {
                 "id": new_job_id,
                 "name": new_name,
@@ -2920,10 +3015,15 @@ def get_job(job_id):
 def delete_job_v1(job_id):
     try:
         stop_job_runner(job_id)
-        # Delete from backend
+        # Delete from backend (try both /api/v1/jobs/{id} and /delete?id={id})
         try:
-            req = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
-            urllib.request.urlopen(req)
+            req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs/{job_id}", method="DELETE")
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass
+        try:
+            req2 = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
+            urllib.request.urlopen(req2, timeout=3)
         except Exception:
             pass
 
@@ -3360,7 +3460,7 @@ def render_job_report_html(job_id, job_name, csv_text, user_lat=None, user_lng=N
         all_fields_html += "</table>"
 
         cards_html_parts.append(f"""
-        <details class="card-row" data-rating="{rating}" data-count="{count}" data-distance="{dist}" data-provincia="{prov}" data-bayes="{bayes_score}" data-email="{first_email}" data-website="{website_clean}" data-phone="{phone}">
+        <details class="card-row" data-lat="{lat}" data-lng="{lng}" data-rating="{rating}" data-count="{count}" data-distance="{dist}" data-provincia="{prov}" data-bayes="{bayes_score}" data-email="{first_email}" data-website="{website_clean}" data-phone="{phone}">
             <summary>
                 <div class="col-dist font-mono">{dist_str}</div>
                 <div class="truncate">
@@ -3723,7 +3823,7 @@ def render_job_report_html(job_id, job_name, csv_text, user_lat=None, user_lng=N
             <div>
                 <h2 id="last-update">📊 {display_name}</h2>
                 <div class="toolbar-meta">
-                    <span>Baricentro: <strong class="font-mono">{start_lat:.4f}, {start_lng:.4f}</strong></span>
+                    <span>Baricentro Attuale: <strong id="current-center-display" class="font-mono">{start_lat:.4f}, {start_lng:.4f}</strong></span>
                     <span>Modello Bayesiano: <strong class="font-mono">m={global_m:.2f}, C={global_c:.0f}</strong></span>
                     <span>Totale: <strong class="font-mono" style="color:var(--text-primary);">{len(processed_rows)}</strong></span>
                     <span>Filtrati: <strong id="filtered-count" class="font-mono" style="color:var(--accent-cyan);">{len(processed_rows)}</strong> <span id="filtered-ratio" style="font-size:12px;color:var(--text-tertiary);">({len(processed_rows)} su {len(processed_rows)})</span></span>
@@ -3731,6 +3831,36 @@ def render_job_report_html(job_id, job_name, csv_text, user_lat=None, user_lng=N
             </div>
             <div style="display:flex; gap:8px;">
                 <a href="/" class="btn">⬅ Dashboard Principale</a>
+            </div>
+        </div>
+        
+        <!-- Sezione Personalizzazione Baricentro in tempo reale -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(15,23,42,0.6);border:1px solid var(--border-subtle);padding:10px 14px;border-radius:6px;margin-bottom:12px;">
+            <span style="font-size:12px;font-weight:700;color:var(--accent-cyan);display:inline-flex;align-items:center;gap:4px;">
+                🎯 Modifica Baricentro:
+            </span>
+            <div style="display:inline-flex;align-items:center;gap:6px;">
+                <label style="font-size:11px;color:var(--text-secondary);">Lat:</label>
+                <input type="number" id="center-lat-input" step="0.0001" value="{start_lat:.4f}" style="width:90px;padding:4px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:ui-monospace,monospace;">
+            </div>
+            <div style="display:inline-flex;align-items:center;gap:6px;">
+                <label style="font-size:11px;color:var(--text-secondary);">Lon:</label>
+                <input type="number" id="center-lng-input" step="0.0001" value="{start_lng:.4f}" style="width:90px;padding:4px 8px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:ui-monospace,monospace;">
+            </div>
+            <button type="button" class="btn" onclick="updateCenterFromInputs()" style="padding:4px 12px;font-size:12px;background:var(--accent-blue);color:#fff;">
+                Ricalcola Distanze
+            </button>
+            <div style="display:inline-flex;gap:6px;align-items:center;margin-left:auto;">
+                <span style="font-size:11px;color:var(--text-tertiary);">Preset rapidi:</span>
+                <button type="button" class="btn" onclick="setCenterPreset(45.4389958, 10.9943574, 'Arena di Verona')" style="padding:3px 8px;font-size:11px;background:#1e293b;border:1px solid #334155;">
+                    🏛️ Arena di Verona
+                </button>
+                <button type="button" class="btn" onclick="setCenterPreset(45.4287, 10.9823, 'Stazione Verona Porta Nuova')" style="padding:3px 8px;font-size:11px;background:#1e293b;border:1px solid #334155;">
+                    🚆 Verona Porta Nuova
+                </button>
+                <button type="button" class="btn" onclick="setCenterPreset(45.4435, 10.9976, 'Piazza Erbe')" style="padding:3px 8px;font-size:11px;background:#1e293b;border:1px solid #334155;">
+                    📍 Piazza Erbe
+                </button>
             </div>
         </div>
         
@@ -3962,6 +4092,72 @@ def render_job_report_html(job_id, job_name, csv_text, user_lat=None, user_lng=N
         
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    }}
+
+    // ---- Client-side Distance Calculation & Dynamic Centroid ----
+    function calculateDistanceClient(lat1, lon1, lat2, lon2) {{
+        try {{
+            const R = 6371.0;
+            const toRad = Math.PI / 180;
+            const dLat = (lat2 - lat1) * toRad;
+            const dLon = (lon2 - lon1) * toRad;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return Math.round((R * c) * 100) / 100;
+        }} catch (e) {{
+            return 9999.99;
+        }}
+    }}
+
+    function setCenterPreset(lat, lng, label) {{
+        document.getElementById('center-lat-input').value = lat.toFixed(4);
+        document.getElementById('center-lng-input').value = lng.toFixed(4);
+        recalculateAllDistances(lat, lng, label);
+    }}
+
+    function updateCenterFromInputs() {{
+        const lat = parseFloat(document.getElementById('center-lat-input').value);
+        const lng = parseFloat(document.getElementById('center-lng-input').value);
+        if (isNaN(lat) || isNaN(lng)) {{
+            alert('Coordinate non valide. Inserisci latitudine e longitudine numeriche.');
+            return;
+        }}
+        recalculateAllDistances(lat, lng);
+    }}
+
+    function recalculateAllDistances(centerLat, centerLng, label) {{
+        const container = document.getElementById('cards-container');
+        const cards = Array.from(container.getElementsByClassName('card-row'));
+
+        const displayEl = document.getElementById('current-center-display');
+        if (displayEl) {{
+            displayEl.textContent = label ? `${{centerLat.toFixed(4)}}, ${{centerLng.toFixed(4)}} (${{label}})` : `${{centerLat.toFixed(4)}}, ${{centerLng.toFixed(4)}}`;
+        }}
+
+        cards.forEach(card => {{
+            const lat = parseFloat(card.getAttribute('data-lat'));
+            const lng = parseFloat(card.getAttribute('data-lng'));
+            let dist = 9999.99;
+            if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {{
+                dist = calculateDistanceClient(centerLat, centerLng, lat, lng);
+            }}
+            card.setAttribute('data-distance', dist);
+
+            const distElem = card.querySelector('.col-dist');
+            if (distElem) {{
+                distElem.textContent = dist !== 9999.99 ? `${{dist.toFixed(2)}} km` : 'N/D';
+            }}
+        }});
+
+        // Update URL query parameters without reloading page
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set('lat', centerLat);
+        newUrl.searchParams.set('lng', centerLng);
+        window.history.replaceState({{}}, '', newUrl);
+
+        applyFilters();
     }}
 
     window.onload = function() {{
