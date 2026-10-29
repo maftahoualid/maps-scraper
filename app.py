@@ -3,6 +3,7 @@ import io
 import csv
 import json
 import math
+import uuid
 import time
 import socket
 import threading
@@ -10,6 +11,8 @@ import http.client
 import sqlite3
 import urllib.request
 import urllib.error
+import urllib.parse
+from datetime import datetime
 from flask import Flask, render_template_string, request, jsonify, Response
 
 app = Flask(__name__)
@@ -78,6 +81,31 @@ def get_db_connection():
         return conn
     return None
 
+def get_file_stats(job_id):
+    """Returns (file_name, file_size_str, places_count) for a job."""
+    local_csv = os.path.join(DATA_DIR, f"{job_id}.csv")
+    if not os.path.exists(local_csv):
+        return None, "—", 0
+    try:
+        sz = os.path.getsize(local_csv)
+        if sz < 1024:
+            sz_str = f"{sz} B"
+        elif sz < 1024 * 1024:
+            sz_str = f"{round(sz / 1024, 1)} KB"
+        else:
+            sz_str = f"{round(sz / (1024 * 1024), 2)} MB"
+        
+        count = 0
+        with open(local_csv, "r", encoding="utf-8", errors="replace") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if header:
+                for _ in reader:
+                    count += 1
+        return f"{job_id}.csv", sz_str, count
+    except Exception:
+        return f"{job_id}.csv", "—", 0
+
 def deduplicate_and_merge_csv(target_csv_path, source_csv_content):
     """
     Appends new rows from source_csv_content to target_csv_path,
@@ -85,11 +113,13 @@ def deduplicate_and_merge_csv(target_csv_path, source_csv_content):
     """
     existing_identities = set()
     file_exists = os.path.exists(target_csv_path) and os.path.getsize(target_csv_path) > 0
+    existing_fieldnames = []
 
     if file_exists:
         try:
             with open(target_csv_path, mode="r", encoding="utf-8", errors="replace") as f:
                 reader = csv.DictReader(f)
+                existing_fieldnames = reader.fieldnames or []
                 for r in reader:
                     link = (r.get("link") or "").strip()
                     place_id = (r.get("place_id") or "").strip()
@@ -102,9 +132,15 @@ def deduplicate_and_merge_csv(target_csv_path, source_csv_content):
             print(f"Error reading existing CSV: {e}")
 
     new_reader = csv.DictReader(io.StringIO(source_csv_content))
-    fieldnames = new_reader.fieldnames or []
-    rows_to_append = []
+    new_fieldnames = new_reader.fieldnames or []
+    
+    # Combined ordered fieldnames
+    fieldnames = existing_fieldnames[:] if existing_fieldnames else []
+    for fn in new_fieldnames:
+        if fn not in fieldnames:
+            fieldnames.append(fn)
 
+    rows_to_append = []
     for r in new_reader:
         link = (r.get("link") or "").strip()
         place_id = (r.get("place_id") or "").strip()
@@ -122,16 +158,48 @@ def deduplicate_and_merge_csv(target_csv_path, source_csv_content):
             if place_id: existing_identities.add(place_id)
             if title and addr: existing_identities.add(f"{title}@@{addr}")
 
-    # Write or append
     mode = "a" if file_exists else "w"
     with open(target_csv_path, mode=mode, encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         if not file_exists:
             writer.writeheader()
         for r in rows_to_append:
             writer.writerow(r)
 
     return len(rows_to_append)
+
+def monitor_active_jobs_limits():
+    """
+    Background worker that checks active jobs and auto-stops them
+    when max_places limit is reached.
+    """
+    while True:
+        try:
+            time.sleep(3)
+            conn = get_db_connection()
+            if not conn:
+                continue
+            cur = conn.cursor()
+            cur.execute("SELECT id, status, data FROM jobs WHERE status = 'working'")
+            active_jobs = cur.fetchall()
+            for r in active_jobs:
+                jid = r["id"]
+                d = json.loads(r["data"]) if r["data"] else {}
+                max_places = d.get("max_places")
+                if max_places and int(max_places) > 0:
+                    limit_val = int(max_places)
+                    _, _, count = get_file_stats(jid)
+                    if count >= limit_val:
+                        # Limit reached: stop runner & mark ok
+                        stop_job_runner(jid)
+                        cur.execute("UPDATE jobs SET status = 'ok', updated_at = ? WHERE id = ?", (int(time.time()), jid))
+                        conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+# Start the background limit monitor daemon
+threading.Thread(target=monitor_active_jobs_limits, daemon=True).start()
 
 def stop_job_runner(job_id):
     """Stops and removes the dedicated CLI runner container for this job."""
@@ -176,26 +244,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Google Maps Scraper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <style>
 :root {
-    --color-background: #0f172a;
-    --color-surface: #1e293b;
-    --color-surface-hover: #334155;
-    --color-text: #f1f5f9;
-    --color-text-light: #94a3b8;
-    --color-border: #334155;
-    --color-primary: #3b82f6;
-    --color-primary-light: #60a5fa;
+    --color-background: #111419;
+    --color-surface: #171b22;
+    --color-surface-hover: #1e232c;
+    --color-border: #262c37;
+    --color-border-hover: #363e4d;
+    --color-text: #eef2f6;
+    --color-text-light: #9ba7b7;
+    --color-text-muted: #626e80;
+    --color-primary: #0ea5e9;
+    --color-primary-light: #38bdf8;
+    --color-accent: #f59e0b;
     --color-success: #10b981;
     --color-warning: #f59e0b;
-    --color-error: #ef4444;
+    --color-error: #f43f5e;
 }
 
+* { box-sizing: border-box; }
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.5;
     color: var(--color-text);
     background-color: var(--color-background);
@@ -204,8 +280,21 @@ body {
     height: 100vh;
     display: flex;
     flex-direction: column;
+    font-size: 13.5px;
+    letter-spacing: -0.01em;
 }
 
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+.app-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Top Navbar */
 .top-navbar {
     height: 56px;
     background-color: var(--color-surface);
@@ -214,58 +303,46 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 0 24px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     z-index: 100;
 }
 
 .top-navbar .navbar-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 
 .top-navbar .brand-icon {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
 }
 
-.top-navbar .brand-title {
-    font-size: 1.25rem;
+.brand-title {
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    font-size: 1.15rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.top-navbar .brand-badge {
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    background-color: rgba(59, 130, 246, 0.2);
-    color: var(--color-primary-light);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    font-weight: 600;
+    color: var(--color-text);
 }
 
 .top-navbar-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
 }
 
 .nav-tabs {
     display: flex;
     align-items: center;
-    gap: 6px;
-    background-color: rgba(15, 23, 42, 0.7);
-    padding: 4px;
+    gap: 4px;
+    background-color: #0f1216;
+    padding: 3px;
     border-radius: 8px;
     border: 1px solid var(--color-border);
 }
 
 .nav-tab-btn {
     padding: 6px 14px;
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 600;
     border-radius: 6px;
     border: none;
@@ -280,13 +357,12 @@ body {
 
 .nav-tab-btn:hover {
     color: var(--color-text);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.04);
 }
 
 .nav-tab-btn.active {
     background-color: var(--color-primary);
     color: #ffffff;
-    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
 }
 
 .tab-badge {
@@ -295,6 +371,7 @@ body {
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.3);
     color: inherit;
+    font-family: ui-monospace, monospace;
 }
 
 .view-section {
@@ -324,7 +401,7 @@ body {
 
 .search-header-box h2 {
     margin: 0 0 6px 0;
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--color-text);
 }
@@ -332,7 +409,7 @@ body {
 .search-header-box p {
     margin: 0;
     color: var(--color-text-light);
-    font-size: 14px;
+    font-size: 13.5px;
 }
 
 /* Fullscreen Results Mode */
@@ -345,56 +422,33 @@ body {
 .empty-results-box {
     text-align: center;
     padding: 60px 20px;
-    background: rgba(30, 41, 59, 0.5);
+    background: var(--color-surface);
     border: 1px dashed var(--color-border);
-    border-radius: 12px;
+    border-radius: 8px;
     margin-top: 20px;
 }
 
 .empty-results-box .empty-icon {
-    font-size: 48px;
-    margin-bottom: 14px;
+    font-size: 42px;
+    margin-bottom: 12px;
 }
 
 .empty-results-box h3 {
-    margin: 0 0 8px 0;
-    font-size: 1.25rem;
+    margin: 0 0 6px 0;
+    font-size: 1.2rem;
     color: var(--color-text);
 }
 
 .empty-results-box p {
     margin: 0 0 20px 0;
     color: var(--color-text-light);
-    font-size: 14px;
-}
-
-.app-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
+    font-size: 13.5px;
 }
 
 main {
     flex: 1;
     display: flex;
     overflow: hidden;
-}
-
-.sidebar {
-    width: 380px;
-    background-color: var(--color-surface);
-    padding: 24px;
-    overflow-y: auto;
-    border-right: 1px solid var(--color-border);
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
-}
-
-.content {
-    flex: 1;
-    padding: 24px 32px;
-    overflow-y: auto;
-    background-color: var(--color-background);
 }
 
 .table-header-bar {
@@ -405,8 +459,9 @@ main {
 }
 
 .table-title {
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
     color: var(--color-text);
     display: flex;
     align-items: center;
@@ -420,57 +475,52 @@ main {
 }
 
 .btn-engine {
-    padding: 7px 14px;
+    padding: 6px 13px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 600;
     cursor: pointer;
-    border: none;
+    border: 1px solid transparent;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    transition: all 0.2s;
+    transition: all 0.15s;
 }
 
 .btn-engine-pause {
-    background-color: #f59e0b;
-    color: #0f172a;
+    background-color: rgba(194, 157, 98, 0.15);
+    color: #c29d62;
+    border-color: rgba(194, 157, 98, 0.3);
 }
-.btn-engine-pause:hover { background-color: #fbbf24; }
+.btn-engine-pause:hover { background-color: rgba(194, 157, 98, 0.25); }
 
 .btn-engine-resume {
-    background-color: #10b981;
-    color: #0f172a;
+    background-color: rgba(110, 148, 124, 0.15);
+    color: #6e947c;
+    border-color: rgba(110, 148, 124, 0.3);
 }
-.btn-engine-resume:hover { background-color: #34d399; }
-
-.badge-engine {
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-}
-.badge-engine-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
-.badge-engine-paused { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+.btn-engine-resume:hover { background-color: rgba(110, 148, 124, 0.25); }
 
 form {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 16px;
 }
 
 fieldset {
-    border: none;
-    padding: 0;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    border-radius: 8px;
+    padding: 18px 20px;
     margin: 0;
 }
 
 legend {
     font-weight: 600;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
     color: var(--color-text);
-    font-size: 15px;
+    font-size: 14px;
+    padding: 0 6px;
 }
 
 .form-group {
@@ -481,7 +531,8 @@ label {
     display: block;
     margin-bottom: 5px;
     color: var(--color-text-light);
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 500;
 }
 
 input[type="text"],
@@ -489,20 +540,19 @@ input[type="number"],
 textarea,
 select {
     width: 100%;
-    padding: 8px 10px;
+    padding: 8px 12px;
     border: 1px solid var(--color-border);
     border-radius: 6px;
-    font-size: 13.5px;
+    font-size: 13px;
     box-sizing: border-box;
-    background: #0f172a;
+    background: #0f1216;
     color: var(--color-text);
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.15s;
 }
 
 input:focus, textarea:focus, select:focus {
     outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    border-color: var(--color-primary-light);
 }
 
 input[type="file"] {
@@ -514,119 +564,157 @@ button {
     background-color: var(--color-primary);
     color: white;
     border: none;
-    padding: 12px 20px;
+    padding: 9px 18px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background-color 0.2s, transform 0.05s;
+    font-size: 13.5px;
+    font-weight: 600;
+    transition: background-color 0.15s, opacity 0.15s;
 }
 
-button:hover { background-color: var(--color-primary-light); }
-button:active { transform: scale(0.99); }
-button:disabled { background-color: #475569; cursor: not-allowed; }
+button:hover { background-color: #0369a1; }
+button:active { opacity: 0.9; }
+button:disabled { background-color: #242c37; color: #64748b; cursor: not-allowed; }
+
+/* Table Styling */
+#table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background-color: var(--color-surface);
+}
 
 table {
     width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    background-color: var(--color-surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--color-border);
+    min-width: 1060px;
+    border-collapse: collapse;
+    background-color: transparent;
+    border: none;
 }
 
 th, td {
     text-align: left;
-    padding: 14px 16px;
+    padding: 9px 10px;
     border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
 }
 
 th {
-    font-weight: 600;
+    font-weight: 700;
     color: var(--color-text-light);
-    background-color: rgba(15, 23, 42, 0.6);
+    background-color: #13171d;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
 }
 
-tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
+tr:hover td { background-color: var(--color-surface-hover); }
 
 .status-indicator {
     display: inline-block;
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 600;
-    text-transform: lowercase;
-}
-
-.status-ok { background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-.status-pending { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-.status-working { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); animation: pulse 1.5s infinite; }
-.status-paused { background-color: rgba(245, 158, 11, 0.25); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.5); }
-.status-failed { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-.status-error { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-}
-
-.download-button, .delete-button, .view-button, .resume-button, .pause-job-button, .leads-button {
-    padding: 5px 10px;
+    padding: 2px 7px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: lowercase;
+    white-space: nowrap;
+}
+
+.status-ok { background-color: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); }
+.status-pending { background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+.status-working { background-color: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); }
+.status-paused { background-color: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); }
+.status-failed, .status-error { background-color: rgba(244, 63, 94, 0.15); color: #f87171; border: 1px solid rgba(244, 63, 94, 0.35); }
+
+/* Unified Action Buttons in Job Table */
+.download-button, .delete-button, .view-button, .resume-button, .pause-job-button, .leads-button, .report-button, .json-button {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
     text-decoration: none;
-    color: white;
+    color: var(--color-text);
+    background-color: #222834;
+    border: 1px solid var(--color-border);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     cursor: pointer;
-    border: none;
-    margin-right: 4px;
-    transition: filter 0.15s;
+    margin: 0;
+    white-space: nowrap;
+    transition: all 0.12s ease-in-out;
 }
 
-.download-button:hover, .delete-button:hover, .view-button:hover, .resume-button:hover, .pause-job-button:hover, .leads-button:hover {
-    filter: brightness(1.15);
+.view-button {
+    background-color: #0284c7;
+    color: #ffffff;
+    border-color: #0369a1;
 }
+.view-button:hover { background-color: #0369a1; }
 
-.download-button { background-color: #059669; }
-.view-button { background-color: #2563eb; }
-.pause-job-button { background-color: #f59e0b; color: #0f172a; font-weight: 600; }
-.resume-button { background-color: #10b981; color: #0f172a; font-weight: 600; }
-.leads-button { background-color: #0284c7; }
-.delete-button { background-color: #dc2626; }
+.report-button {
+    background-color: rgba(14, 165, 233, 0.12);
+    color: #38bdf8;
+    border-color: rgba(14, 165, 233, 0.35);
+}
+.report-button:hover { background-color: rgba(14, 165, 233, 0.25); color: #fff; }
 
 .json-button {
-    padding: 5px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    text-decoration: none;
-    color: white;
-    background-color: #7c3aed;
-    display: inline-flex;
-    align-items: center;
-    cursor: pointer;
-    border: none;
-    margin-right: 4px;
-    transition: filter 0.15s;
+    background-color: #1f2530;
+    color: var(--color-text-light);
 }
-.json-button:hover { filter: brightness(1.15); }
+.json-button:hover {
+    background-color: #2b3342;
+    color: #fff;
+}
+
+.leads-button {
+    background-color: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    border-color: rgba(245, 158, 11, 0.35);
+}
+.leads-button:hover {
+    background-color: rgba(245, 158, 11, 0.22);
+    color: #fde68a;
+}
+
+.delete-button {
+    background-color: transparent;
+    color: #f87171;
+    border-color: rgba(244, 63, 94, 0.25);
+}
+.delete-button:hover {
+    background-color: rgba(244, 63, 94, 0.18);
+    color: #fda4af;
+    border-color: rgba(244, 63, 94, 0.45);
+}
+
+.pause-job-button {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border-color: rgba(245, 158, 11, 0.35);
+    padding: 4px 7px;
+}
+.resume-button {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border-color: rgba(16, 185, 129, 0.35);
+    padding: 4px 7px;
+}
 
 .error-message {
     display: none;
-    background-color: rgba(239, 68, 68, 0.15);
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    background-color: rgba(244, 63, 94, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.3);
     color: #fca5a5;
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-radius: 6px;
-    margin-bottom: 20px;
-    font-size: 13.5px;
+    margin-bottom: 16px;
+    font-size: 13px;
 }
-
-.error-message:not(:empty) {
-    display: block;
-}
+.error-message:not(:empty) { display: block; }
 
 .expandable-section {
     border-radius: 6px;
@@ -636,18 +724,18 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 .expandable-section summary {
     cursor: pointer;
     padding: 10px 14px;
-    background-color: rgba(15, 23, 42, 0.6);
+    background-color: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 6px;
     color: var(--color-text);
     list-style: none;
-    font-size: 13.5px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 600;
     transition: background-color 0.15s;
 }
 
 .expandable-section summary:hover {
-    background-color: rgba(51, 65, 85, 0.6);
+    background-color: var(--color-surface-hover);
 }
 
 .expandable-section summary::-webkit-details-marker {
@@ -658,7 +746,7 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     border-bottom: none;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
-    background-color: rgba(51, 65, 85, 0.5);
+    background-color: var(--color-surface-hover);
 }
 
 .expandable-section[open] fieldset {
@@ -666,33 +754,20 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     border-top: none;
     border-radius: 0 0 6px 6px;
     padding: 14px;
-    background: rgba(15, 23, 42, 0.4);
-}
-
-@media (max-width: 768px) {
-    main { flex-direction: column; }
-    .sidebar {
-        width: 100%;
-        border-right: none;
-        border-bottom: 1px solid var(--color-border);
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    }
-    .content { padding: 20px; }
+    background: #12161c;
 }
 
 .spinner {
     display: none;
     width: 20px;
     height: 20px;
-    border: 3px solid #334155;
-    border-top-color: var(--color-primary);
+    border: 2px solid #242c37;
+    border-top-color: var(--color-primary-light);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     margin-bottom: 12px;
 }
-
 .spinner.active { display: inline-block; }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Map modal */
@@ -701,8 +776,8 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(4px);
+    background: rgba(10, 12, 16, 0.82);
+    backdrop-filter: blur(6px);
     justify-content: center;
     align-items: center;
 }
@@ -710,38 +785,37 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 .map-modal-content {
     background: var(--color-surface);
     color: var(--color-text);
-    width: 90vw;
-    height: 85vh;
+    width: 92vw;
+    height: 88vh;
     border-radius: 8px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--color-border);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
 }
 
 .map-modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: 12px 18px;
     border-bottom: 1px solid var(--color-border);
-    background: rgba(15, 23, 42, 0.6);
+    background: #14181f;
 }
 
-.map-modal-header h2 { margin: 0; font-size: 1.1rem; color: var(--color-text); }
+.map-modal-header h2 { margin: 0; font-size: 1.15rem; color: var(--color-text); font-weight: 700; }
 
 .map-modal-close {
     background: none;
     border: none;
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     line-height: 1;
     cursor: pointer;
     color: var(--color-text-light);
     padding: 0;
 }
-
-.map-modal-close:hover { background: none; color: #fff; }
+.map-modal-close:hover { color: #fff; }
 
 .map-modal-body { flex: 1; display: flex; min-height: 0; }
 
@@ -749,8 +823,8 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 
 #job-places-list {
     flex: 1;
-    min-width: 260px;
-    max-width: 380px;
+    min-width: 280px;
+    max-width: 400px;
     overflow-y: auto;
     border-left: 1px solid var(--color-border);
     padding: 10px;
@@ -758,20 +832,21 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 }
 
 .place-item {
-    padding: 10px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--color-border);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 6px;
     margin-bottom: 4px;
+    background: #14181f;
     transition: background-color 0.15s;
 }
-.place-item:hover { background: rgba(59, 130, 246, 0.15); }
-.place-title { font-weight: 600; font-size: 13.5px; color: #f1f5f9; }
-.place-address { font-size: 0.8rem; color: var(--color-text-light); }
-.place-rating { font-size: 0.8rem; color: #fbbf24; }
+.place-item:hover { background: #1c222b; }
+.place-title { font-weight: 600; font-size: 13px; color: var(--color-text); }
+.place-address { font-size: 12px; color: var(--color-text-light); margin-top: 2px; }
+.place-rating { font-size: 12px; color: #fbbf24; font-weight: 600; margin-top: 2px; }
 
-.map-loading, .map-empty, .map-error { padding: 12px; color: var(--color-text-light); }
-.map-error { color: #f87171; }
+.map-loading, .map-empty, .map-error { padding: 12px; color: var(--color-text-light); font-size: 12.5px; }
+.map-error { color: #f43f5e; }
 
 .form-group.checkbox {
     display: flex;
@@ -779,13 +854,7 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     gap: 8px;
     margin-bottom: 12px;
 }
-
-.form-group.checkbox label {
-    margin-bottom: 0;
-    cursor: pointer;
-    color: var(--color-text);
-}
-
+.form-group.checkbox label { margin-bottom: 0; cursor: pointer; color: var(--color-text); }
 .form-group.checkbox input[type="checkbox"] {
     width: 16px;
     height: 16px;
@@ -801,27 +870,27 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     font-weight: 700;
     margin-left: 4px;
 }
-
-.badge-flag { background: #334155; color: #cbd5e1; }
+.badge-flag { background: #242c37; color: #94a3b8; }
 
 .text-muted {
     font-size: 12px;
-    color: var(--color-text-light);
+    color: var(--color-text-muted);
     line-height: 1.4;
     margin-top: 4px;
 }
 
 .actions-cell {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 4px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 .grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 12px;
 }
 
 /* Pro Mode Switch Styling */
@@ -829,17 +898,15 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: #1e293b;
+    background: #14181f;
     border: 1px solid var(--color-border);
-    padding: 6px 12px;
+    padding: 5px 10px;
     border-radius: 20px;
     cursor: pointer;
     user-select: none;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
 }
-.pro-toggle-switch:hover {
-    border-color: var(--color-primary);
-}
+.pro-toggle-switch:hover { border-color: var(--color-primary-light); }
 .pro-toggle-switch input[type="checkbox"] {
     position: absolute;
     opacity: 0;
@@ -849,47 +916,44 @@ tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 }
 .pro-slider {
     position: relative;
-    width: 36px;
-    height: 20px;
-    background-color: #475569;
+    width: 32px;
+    height: 18px;
+    background-color: #242c37;
     border-radius: 20px;
-    transition: 0.3s;
+    transition: 0.2s;
     display: inline-block;
 }
 .pro-slider:before {
     position: absolute;
     content: "";
-    height: 14px;
-    width: 14px;
+    height: 12px;
+    width: 12px;
     left: 3px;
     bottom: 3px;
-    background-color: white;
+    background-color: #94a3b8;
     border-radius: 50%;
-    transition: 0.3s;
+    transition: 0.2s;
 }
 .pro-toggle-switch input:checked + .pro-slider {
     background-color: var(--color-primary);
 }
 .pro-toggle-switch input:checked + .pro-slider:before {
-    transform: translateX(16px);
+    transform: translateX(14px);
+    background-color: #ffffff;
 }
 .pro-label {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--color-text);
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    color: var(--color-text-light);
 }
 .pro-toggle-switch input:checked ~ .pro-label {
-    color: #60a5fa;
+    color: var(--color-primary-light);
 }
 
-/* Pro Mode Field Visibility */
 body:not(.pro-mode-active) .pro-field {
     display: none !important;
 }
-    </style>
+</style>
 </head>
 <body>
     <div class="app-container">
@@ -911,7 +975,7 @@ body:not(.pro-mode-active) .pro-field {
 
             <div class="top-navbar-right">
                 <button id="engine-toggle-btn" class="btn-engine btn-engine-pause" onclick="toggleEnginePause()" title="Pause or resume all background scraping jobs">
-                    ⏸ Pause All Jobs
+                    ⏸
                 </button>
             </div>
         </header>
@@ -1088,6 +1152,10 @@ body:not(.pro-mode-active) .pro-field {
                                         <input type="number" step="1" id="depth" name="depth" value="10">
                                     </div>
                                     <div class="form-group">
+                                        <label for="max_places">Limite Locali (Max Places):</label>
+                                        <input type="number" step="1" min="1" id="max_places" name="max_places" placeholder="Nessun limite (es. 50)">
+                                    </div>
+                                    <div class="form-group">
                                         <label for="maxtime">Max job time:</label>
                                         <input type="text" id="maxtime" name="maxtime" value="10m">
                                     </div>
@@ -1242,9 +1310,14 @@ body:not(.pro-mode-active) .pro-field {
                         <div class="table-title">
                             <span>Tasks & Scraping Jobs</span>
                         </div>
-                        <button type="button" class="btn-primary" onclick="switchView('search')" style="background-color:var(--color-primary); color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:6px;">
-                            ➕ Nuova Ricerca
-                        </button>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button type="button" onclick="openMergeModal()" style="background-color:var(--color-primary); color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:6px;">
+                                🔀 Unisci Ricerche (Merge)
+                            </button>
+                            <button type="button" class="btn-primary" onclick="switchView('search')" style="background-color:var(--color-primary); color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:6px;">
+                                ➕ Nuova Ricerca
+                            </button>
+                        </div>
                     </div>
 
                     <div id="spinner" class="spinner"></div>
@@ -1262,11 +1335,13 @@ body:not(.pro-mode-active) .pro-field {
                         <table id="job-table">
                             <thead>
                                 <tr>
-                                    <th>Job ID</th>
+                                    <th style="width:105px;">Job ID</th>
                                     <th>Job Name</th>
-                                    <th>Job Date</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th style="width:90px;text-align:center;">Locali</th>
+                                    <th style="width:170px;">File Locale</th>
+                                    <th style="width:160px;">Inizio / Fine</th>
+                                    <th style="width:85px;text-align:center;">Status</th>
+                                    <th style="width:230px;text-align:left;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="job-tbody">
@@ -1309,7 +1384,8 @@ body:not(.pro-mode-active) .pro-field {
         }
         if (btn) {
             btn.className = paused ? 'btn-engine btn-engine-resume' : 'btn-engine btn-engine-pause';
-            btn.innerHTML = paused ? '▶ Resume All Jobs' : '⏸ Pause All Jobs';
+            btn.innerHTML = paused ? '▶' : '⏸';
+            btn.title = paused ? 'Resume All Jobs' : 'Pause All Jobs';
         }
     }
 
@@ -1779,6 +1855,8 @@ body:not(.pro-mode-active) .pro-field {
         const fastmode = document.getElementById('fastmode').checked;
         const radius = parseInt(document.getElementById('radius').value) || 10000;
         const depth = parseInt(document.getElementById('depth').value) || 10;
+        const max_places_input = document.getElementById('max_places').value.trim();
+        const max_places = max_places_input ? parseInt(max_places_input) : null;
         const email = document.getElementById('email').checked;
         const extra_reviews = document.getElementById('extra_reviews').checked;
         const disable_page_reuse = document.getElementById('disable_page_reuse').checked;
@@ -1826,6 +1904,7 @@ body:not(.pro-mode-active) .pro-field {
             fast_mode: fastmode,
             radius,
             depth,
+            max_places,
             email,
             max_time: maxtime,
             extra_reviews,
@@ -1958,33 +2037,85 @@ body:not(.pro-mode-active) .pro-field {
 
             // Pause button for currently working jobs
             if (status === 'working') {
-                actionsHtml += `<button class="pause-job-button" onclick="pauseJob('${j.id}')" title="Pause this search and save results">⏸ Pause</button>`;
+                actionsHtml += `<button class="pause-job-button" onclick="pauseJob('${j.id}')" title="Pause this search and save results">⏸</button>`;
             }
 
             // Resume button for paused, failed, or completed jobs to continue scraping missing places without duplicates
             if (status === 'paused' || status === 'failed' || status === 'error' || status === 'ok') {
-                actionsHtml += `<button class="resume-button" onclick="resumeJobSearch('${j.id}')" title="Resume search from saved results without duplicates">▶ Resume</button>`;
+                actionsHtml += `<button class="resume-button" onclick="resumeJobSearch('${j.id}')" title="Resume search from saved results without duplicates">▶</button>`;
             }
 
-            // Export & View buttons
+            // Export & View buttons ("View Map" -> "Map", LeadsDB -> DB, CSV download linked on filename)
             if (status === 'ok' || status === 'paused' || status === 'working') {
-                actionsHtml += `<button class="view-button" onclick="openMapModal('${j.id}', '${name}')">View</button>`;
-                actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=csv" class="download-button" title="Download CSV">CSV</a>`;
+                actionsHtml += `<button class="view-button" onclick="openMapModal('${j.id}', '${name}')" title="View interactive map">Map</button>`;
+                actionsHtml += `<a href="/jobs/${j.id}/report" target="_blank" class="report-button" title="Interactive Bayesian Results Dashboard">Report</a>`;
                 actionsHtml += `<a href="/api/v1/jobs/${j.id}/download?format=json" class="json-button" title="Download JSON (-json)">JSON</a>`;
-                actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.id}')" title="Export to LeadsDB (-leadsdb-api-key)">LeadsDB</button>`;
+                actionsHtml += `<button class="leads-button" onclick="exportToLeadsDB('${j.id}')" title="Export to LeadsDB (-leadsdb-api-key)">DB</button>`;
             }
 
             actionsHtml += `<button class="delete-button" onclick="deleteJob('${j.id}')">Delete</button>`;
             actionsHtml += '</div>';
 
             const shortId = id.substring(0, 8);
+            const placesCount = j.places_count != null ? j.places_count : 0;
+            const fileName = j.file_name || '—';
+            const fileSize = j.file_size || '—';
+            const startTime = j.start_time ? new Date(j.start_time).toLocaleString() : (j.date ? new Date(j.date).toLocaleString() : '—');
+            const endTime = j.end_time ? new Date(j.end_time).toLocaleString() : (status === 'working' ? '<span style="color:#c29d62;font-weight:600;">In corso...</span>' : '—');
+
+            // Format params for expandable row
+            const jd = j.data || {};
+            const kwList = Array.isArray(jd.keywords) ? jd.keywords.join(', ') : (jd.keywords || '—');
+            const maxPlacesBadge = jd.max_places ? `<span style="background:rgba(244,63,94,0.18);color:#f87171;padding:2px 6px;border-radius:4px;font-weight:600;">Limite: ${jd.max_places}</span>` : 'Nessun limite';
+
+            const fileCellHtml = fileName !== '—'
+                ? `<a href="/api/v1/jobs/${id}/download?format=csv" title="Download ${fileName}" style="text-decoration:none;color:var(--color-primary-light);font-size:11.5px;font-family:ui-monospace,monospace;display:inline-block;white-space:nowrap;">📥 ${fileName}</a>
+                   <div style="font-size:10.5px;color:var(--color-text-muted);margin-top:1px;font-family:ui-monospace,monospace;">💾 ${fileSize}</div>`
+                : `<div style="font-size:11.5px;font-family:ui-monospace,monospace;color:var(--color-text-muted);">—</div>`;
+
+            const isExpanded = openJobParamsSet.has(id);
+            const arrowChar = isExpanded ? '▼' : '▶';
+            const rowDisplayStyle = isExpanded ? '' : 'none';
 
             html += `<tr>
-                <td title="${id}"><a href="/api/v1/jobs/${id}" target="_blank" style="color:var(--color-primary);text-decoration:none;" title="View Clean JSON details">${shortId}…</a></td>
-                <td><strong>${name}</strong></td>
-                <td>${date}</td>
-                <td>${statusHtml}</td>
-                <td>${actionsHtml}</td>
+                <td title="Clicca per visualizzare/nascondere i parametri usati" style="white-space:nowrap;">
+                    <span style="cursor:pointer;color:var(--color-primary-light);font-weight:600;display:inline-flex;align-items:center;gap:4px;" onclick="toggleJobParams('${id}')">
+                        <span id="arrow-${id}">${arrowChar}</span> <code style="font-size:12px;">${shortId}…</code>
+                    </span>
+                </td>
+                <td><strong style="color:var(--color-text);font-size:13.5px;">${name}</strong></td>
+                <td style="text-align:center;"><span style="background:rgba(14,165,233,0.12);color:#38bdf8;padding:2px 7px;border-radius:4px;font-weight:700;font-size:12px;font-family:ui-monospace,monospace;">${placesCount}</span></td>
+                <td>
+                    ${fileCellHtml}
+                </td>
+                <td style="font-size:11.5px;line-height:1.35;white-space:nowrap;">
+                    <div><span style="color:var(--color-text-muted);">Inizio:</span> ${startTime}</div>
+                    <div><span style="color:var(--color-text-muted);">Fine:</span> ${endTime}</div>
+                </td>
+                <td style="text-align:center;">${statusHtml}</td>
+                <td style="white-space:nowrap;">${actionsHtml}</td>
+            </tr>
+            <tr id="params-row-${id}" style="display:${rowDisplayStyle};background:rgba(20,24,29,0.7);">
+                <td colspan="7" style="padding:14px 20px;border-bottom:2px solid var(--color-border);">
+                    <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:6px;padding:12px 16px;font-size:13px;line-height:1.6;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;border-bottom:1px solid var(--color-border);padding-bottom:6px;">
+                            <strong style="color:var(--color-primary-light);">⚙️ Parametri utilizzati per questa ricerca (Job ID: ${id})</strong>
+                            <a href="/api/v1/jobs/${id}" target="_blank" style="color:var(--color-text-muted);font-size:11.5px;text-decoration:none;">Vedi JSON Raw ↗</a>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:10px;">
+                            <div><strong>Keywords:</strong> <span style="color:var(--color-text);">${escapeHtml(kwList)}</span></div>
+                            <div><strong>Lingua:</strong> <span style="color:var(--color-text);">${escapeHtml(jd.lang || 'en')}</span></div>
+                            <div><strong>Coordinate (Lat, Lon):</strong> <span style="color:var(--color-text);">${jd.lat || '0'}, ${jd.lon || '0'}</span></div>
+                            <div><strong>Raggio:</strong> <span style="color:var(--color-text);">${jd.radius || '10000'} m</span></div>
+                            <div><strong>Zoom:</strong> <span style="color:var(--color-text);">${jd.zoom || '15'}</span></div>
+                            <div><strong>Depth (scroll):</strong> <span style="color:var(--color-text);">${jd.depth || '10'}</span></div>
+                            <div><strong>Limite Locali:</strong> ${maxPlacesBadge}</div>
+                            <div><strong>E-mail Scraping:</strong> <span style="color:var(--color-text);">${jd.email ? '✅ Sì' : '❌ No'}</span></div>
+                            <div><strong>Extra Reviews:</strong> <span style="color:var(--color-text);">${jd.extra_reviews ? '✅ Sì' : '❌ No'}</span></div>
+                            <div><strong>Fast Mode:</strong> <span style="color:var(--color-text);">${jd.fast_mode ? '⚡ Attivo' : 'Disattivato'}</span></div>
+                        </div>
+                    </div>
+                </td>
             </tr>`;
         }
         tbody.innerHTML = html;
@@ -2074,6 +2205,8 @@ body:not(.pro-mode-active) .pro-field {
                 const rating = place.review_rating || '';
                 const reviewCount = place.review_count || '';
                 const link = place.link || '';
+                const website = (place.website || '').trim();
+                const emails = (place.emails || place.email || '').trim();
 
                 const item = document.createElement('div');
                 item.className = 'place-item';
@@ -2081,6 +2214,8 @@ body:not(.pro-mode-active) .pro-field {
                     <div class="place-title">${escapeHtml(title)}</div>
                     ${address ? `<div class="place-address">${escapeHtml(address)}</div>` : ''}
                     ${phone ? `<div class="place-address">📞 ${escapeHtml(phone)}</div>` : ''}
+                    ${website ? `<div class="place-address">🌐 <a href="${encodeURI(website)}" target="_blank" style="color:#38bdf8;text-decoration:none;" onclick="event.stopPropagation();">${escapeHtml(website.replace('https://','').replace('http://','').replace(/\/$/,'').substring(0, 32))} ↗</a></div>` : ''}
+                    ${emails ? `<div class="place-address">📧 <a href="mailto:${escapeHtml(emails.split(',')[0].trim())}" style="color:#34d399;text-decoration:none;" onclick="event.stopPropagation();">${escapeHtml(emails.split(',')[0].trim())}</a></div>` : ''}
                     ${rating ? `<div class="place-rating">★ ${escapeHtml(rating)} (${escapeHtml(reviewCount)} reviews)</div>` : ''}
                     ${link ? `<div><a href="${encodeURI(link)}" target="_blank" style="font-size:12px;color:#60a5fa;">Open on Google Maps ↗</a></div>` : ''}
                 `;
@@ -2116,6 +2251,13 @@ body:not(.pro-mode-active) .pro-field {
                     const title = p.title || 'Place';
                     const addr = p.address || '';
                     const ph = p.phone || '';
+                    const ws = (p.website || '').trim();
+                    const em = (p.emails || p.email || '').trim();
+                    const popupParts = [`<strong>${escapeHtml(title)}</strong>`];
+                    if (addr) popupParts.push(escapeHtml(addr));
+                    if (ph) popupParts.push('📞 ' + escapeHtml(ph));
+                    if (ws) popupParts.push(`🌐 <a href="${encodeURI(ws)}" target="_blank" style="color:var(--color-primary-light);">${escapeHtml(ws.replace(/^https?:\/\//, '').substring(0,30))} ↗</a>`);
+                    if (em) popupParts.push(`📧 <a href="mailto:${escapeHtml(em.split(',')[0].trim())}">${escapeHtml(em.split(',')[0].trim())}</a>`);
                     const m = L.circleMarker([lat, lon], {
                         radius: 6,
                         fillColor: "#3b82f6",
@@ -2123,7 +2265,7 @@ body:not(.pro-mode-active) .pro-field {
                         weight: 1,
                         opacity: 1,
                         fillOpacity: 0.8
-                    }).bindPopup(`<strong>${escapeHtml(title)}</strong><br>${escapeHtml(addr)}<br>${ph ? '📞 ' + escapeHtml(ph) : ''}`);
+                    }).bindPopup(popupParts.join('<br>'));
                     markersList.push(m);
                 }
             }
@@ -2150,6 +2292,121 @@ body:not(.pro-mode-active) .pro-field {
             leafletMap.remove();
             leafletMap = null;
             markersCluster = null;
+        }
+    }
+
+    // ---- Expandable Job Parameters ----
+    const openJobParamsSet = new Set();
+    function toggleJobParams(id) {
+        const row = document.getElementById('params-row-' + id);
+        const arrow = document.getElementById('arrow-' + id);
+        if (openJobParamsSet.has(id)) {
+            openJobParamsSet.delete(id);
+            if (row) row.style.display = 'none';
+            if (arrow) arrow.textContent = '▶';
+        } else {
+            openJobParamsSet.add(id);
+            if (row) row.style.display = '';
+            if (arrow) arrow.textContent = '▼';
+        }
+    }
+
+    // ---- Merge Jobs Modal ----
+    function openMergeModal() {
+        const existing = document.getElementById('__merge-modal');
+        if (existing) existing.remove();
+
+        let optionsHtml = '';
+        (cachedJobs || []).forEach(j => {
+            const count = j.places_count != null ? j.places_count : 0;
+            optionsHtml += `<option value="${j.id}">[${count} locali] ${escapeHtml(j.name)} (${j.id.substring(0,8)}...)</option>`;
+        });
+
+        const modal = document.createElement('div');
+        modal.id = '__merge-modal';
+        modal.className = 'map-modal';
+        modal.innerHTML = `
+            <div class="map-modal-content" style="max-width:550px;height:auto;max-height:85vh;padding:24px;border-radius:10px;background:#1e293b;border:1px solid #334155;color:#f1f5f9;">
+                <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;padding-bottom:12px;margin-bottom:18px;">
+                    <h3 style="margin:0;font-size:1.15rem;color:#38bdf8;">🔀 Unisci Due Ricerche (Merge)</h3>
+                    <button class="map-modal-close" onclick="closeMergeModal()" style="font-size:24px;cursor:pointer;background:none;border:none;color:#94a3b8;">&times;</button>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                    <div>
+                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Prima Ricerca (Job 1):</label>
+                        <select id="merge-job-1" style="width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Seconda Ricerca (Job 2):</label>
+                        <select id="merge-job-2" style="width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:12.5px;font-weight:600;color:#94a3b8;display:block;margin-bottom:6px;">Nome della nuova ricerca unita:</label>
+                        <input type="text" id="merge-job-name" placeholder="es. Ristoranti Totali (Uniti)" style="width:100%;box-sizing:border-box;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#f1f5f9;font-size:13px;">
+                    </div>
+                    <div style="font-size:12px;color:#94a3b8;background:rgba(2,132,199,0.1);border:1px solid rgba(2,132,199,0.3);border-radius:6px;padding:10px;">
+                        ℹ️ L'unione creerà un nuovo Job e un nuovo file locale CSV contenente tutti i locali delle due ricerche, rimuovendo automaticamente tutti i duplicati (stesso link, place_id o nome+indirizzo).
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+                        <button type="button" onclick="closeMergeModal()" style="padding:8px 16px;background:#334155;color:#f1f5f9;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Annulla</button>
+                        <button type="button" id="btn-confirm-merge" onclick="submitMergeJobs()" style="padding:8px 18px;background:var(--color-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Unisci Ricerche</button>
+                    </div>
+                </div>
+            </div>`;
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeMergeModal(); });
+        document.body.appendChild(modal);
+
+        // Pre-select second option if available
+        const s2 = document.getElementById('merge-job-2');
+        if (s2 && s2.options.length > 1) {
+            s2.selectedIndex = 1;
+        }
+    }
+
+    function closeMergeModal() {
+        const modal = document.getElementById('__merge-modal');
+        if (modal) modal.remove();
+    }
+
+    async function submitMergeJobs() {
+        const j1 = document.getElementById('merge-job-1').value;
+        const j2 = document.getElementById('merge-job-2').value;
+        const name = document.getElementById('merge-job-name').value.trim();
+
+        if (j1 === j2) {
+            alert('Seleziona due ricerche distinte da unire.');
+            return;
+        }
+
+        const btn = document.getElementById('btn-confirm-merge');
+        btn.disabled = true;
+        btn.textContent = 'Unione in corso...';
+
+        try {
+            const res = await fetch('/api/v1/jobs/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id_1: j1, job_id_2: j2, name: name })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert("Errore: " + (data.error || "Impossibile completare l'unione"));
+            } else {
+                alert(data.message || 'Ricerche unite con successo!');
+                closeMergeModal();
+                await fetchJobs();
+            }
+        } catch (err) {
+            alert('Errore di connessione: ' + err.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Unisci Ricerche';
+            }
         }
     }
 
@@ -2387,15 +2644,30 @@ def list_jobs():
         jobs = []
         for r in rows:
             d = json.loads(r["data"]) if r["data"] else {}
-            date_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(r["created_at"])) if r["created_at"] else ""
+            start_date_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(r["created_at"])) if r["created_at"] else ""
+            
+            # Finished date if job is completed or stopped
+            updated_ts = r["updated_at"]
+            is_active = r["status"] in ("working", "pending")
+            end_date_str = ""
+            if not is_active and updated_ts and updated_ts > (r["created_at"] or 0):
+                end_date_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(updated_ts))
+
             max_time_raw = d.get("max_time", 0)
             max_time_sec = int(max_time_raw / 1_000_000_000) if max_time_raw > 1_000_000 else max_time_raw
+
+            file_name, file_size_str, places_count = get_file_stats(r["id"])
 
             jobs.append({
                 "id": r["id"],
                 "name": r["name"],
-                "date": date_str,
+                "date": start_date_str,
+                "start_time": start_date_str,
+                "end_time": end_date_str,
                 "status": r["status"],
+                "file_name": file_name,
+                "file_size": file_size_str,
+                "places_count": places_count,
                 "data": {
                     "keywords": d.get("keywords", []),
                     "lang": d.get("lang", "en"),
@@ -2404,6 +2676,7 @@ def list_jobs():
                     "lon": d.get("lon", ""),
                     "radius": d.get("radius", 10000),
                     "depth": d.get("depth", 10),
+                    "max_places": d.get("max_places"),
                     "max_time_seconds": max_time_sec,
                     "email": d.get("email", False),
                     "fast_mode": d.get("fast_mode", False),
@@ -2476,6 +2749,12 @@ def create_job():
             return jsonify({"status": "created", "grid_cells": len(created_ids), "ids": created_ids}), 201
 
         cleaned_payload = build_req_payload(payload.get("name"), payload.get("lat"), payload.get("lon"))
+        max_places_val = payload.get("max_places")
+        if max_places_val:
+            try:
+                cleaned_payload["max_places"] = int(max_places_val)
+            except Exception:
+                pass
         req_data = json.dumps(cleaned_payload).encode("utf-8")
         req = urllib.request.Request(
             f"{BACKEND_URL}/api/v1/jobs",
@@ -2484,6 +2763,22 @@ def create_job():
         )
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
+            new_id = data.get("id") or data.get("ID")
+            if new_id and payload.get("max_places"):
+                try:
+                    conn = get_db_connection()
+                    if conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT data FROM jobs WHERE id = ?", (new_id,))
+                        r_data = cur.fetchone()
+                        if r_data:
+                            existing_d = json.loads(r_data["data"]) if r_data["data"] else {}
+                            existing_d["max_places"] = int(payload.get("max_places"))
+                            cur.execute("UPDATE jobs SET data = ? WHERE id = ?", (json.dumps(existing_d), new_id))
+                            conn.commit()
+                        conn.close()
+                except Exception:
+                    pass
             return jsonify(data), 201
 
     except urllib.error.HTTPError as e:
@@ -2491,6 +2786,101 @@ def create_job():
         return Response(err_msg, status=e.code)
     except Exception as e:
         return Response(str(e), status=500)
+
+@app.route("/api/v1/jobs/merge", methods=["POST"])
+def merge_jobs_endpoint():
+    """
+    Merges two existing jobs into a new job and local CSV file without duplicates.
+    """
+    try:
+        body = request.json or {}
+        job_id_1 = (body.get("job_id_1") or "").strip()
+        job_id_2 = (body.get("job_id_2") or "").strip()
+        custom_name = (body.get("name") or "").strip()
+
+        if not job_id_1 or not job_id_2:
+            return jsonify({"error": "Entrambi i Job (Job 1 e Job 2) sono richiesti per l'unione."}), 400
+        if job_id_1 == job_id_2:
+            return jsonify({"error": "Seleziona due Job differenti da unire."}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database non accessibile."}), 500
+
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, data FROM jobs WHERE id IN (?, ?)", (job_id_1, job_id_2))
+        rows = cur.fetchall()
+        jobs_map = {r["id"]: r for r in rows}
+
+        if job_id_1 not in jobs_map or job_id_2 not in jobs_map:
+            conn.close()
+            return jsonify({"error": "Uno o entrambi i job specificati non sono stati trovati."}), 404
+
+        j1 = jobs_map[job_id_1]
+        j2 = jobs_map[job_id_2]
+
+        new_job_id = str(uuid.uuid4())
+        new_name = custom_name if custom_name else f"Unione: {j1['name']} + {j2['name']}"
+
+        # Combine keywords and metadata
+        d1 = json.loads(j1["data"]) if j1["data"] else {}
+        d2 = json.loads(j2["data"]) if j2["data"] else {}
+
+        kw1 = d1.get("keywords") or []
+        kw2 = d2.get("keywords") or []
+        combined_keywords = list(dict.fromkeys(kw1 + kw2))
+
+        combined_data = dict(d1)
+        combined_data["keywords"] = combined_keywords
+        combined_data["merged_from"] = [job_id_1, job_id_2]
+
+        new_target_csv = os.path.join(DATA_DIR, f"{new_job_id}.csv")
+
+        # Read CSV 1
+        csv1_path = os.path.join(DATA_DIR, f"{job_id_1}.csv")
+        csv1_content = ""
+        if os.path.exists(csv1_path):
+            with open(csv1_path, "r", encoding="utf-8", errors="replace") as f:
+                csv1_content = f.read()
+
+        # Read CSV 2
+        csv2_path = os.path.join(DATA_DIR, f"{job_id_2}.csv")
+        csv2_content = ""
+        if os.path.exists(csv2_path):
+            with open(csv2_path, "r", encoding="utf-8", errors="replace") as f:
+                csv2_content = f.read()
+
+        # Merge deduplicated into new_target_csv
+        if csv1_content:
+            deduplicate_and_merge_csv(new_target_csv, csv1_content)
+        if csv2_content:
+            deduplicate_and_merge_csv(new_target_csv, csv2_content)
+
+        # Insert new record into jobs.db
+        now_ts = int(time.time())
+        cur.execute(
+            "INSERT INTO jobs (id, name, status, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_job_id, new_name, "ok", json.dumps(combined_data), now_ts, now_ts)
+        )
+        conn.commit()
+        conn.close()
+
+        file_name, file_size_str, places_count = get_file_stats(new_job_id)
+
+        return jsonify({
+            "status": "ok",
+            "message": f"Job unito con successo! {places_count} locali unici estratti.",
+            "job": {
+                "id": new_job_id,
+                "name": new_name,
+                "file_name": file_name,
+                "file_size": file_size_str,
+                "places_count": places_count
+            }
+        }), 201
+
+    except Exception as e:
+        return jsonify({"error": f"Errore durante l'unione: {str(e)}"}), 500
 
 @app.route("/api/docs")
 def api_docs():
@@ -2728,6 +3118,923 @@ def export_leadsdb(job_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+# ==========================================
+# --- REPORT DASHBOARD GENERATOR LOGIC ---
+# ==========================================
+def calculate_distance(lat1, lon1, lat2, lon2):
+    try:
+        R = 6371.0
+        lat1, lon1, lat2, lon2 = map(math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return round(R * c, 2)
+    except Exception:
+        return 9999.99
+
+def format_open_hours(hours_str):
+    if not hours_str or hours_str == "{}" or hours_str == "None":
+        return "<span style=\"color:#64748b;font-style:italic;\">Orari non disponibili</span>"
+    try:
+        hours = json.loads(hours_str) if isinstance(hours_str, str) else hours_str
+        days = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+        pills = []
+        for day in days:
+            if day in hours:
+                times = ", ".join(hours[day])
+                is_closed = "chiuso" in times.lower()
+                bg = "rgba(239, 68, 68, 0.15)" if is_closed else "rgba(16, 185, 129, 0.1)"
+                color = "#f87171" if is_closed else "#34d399"
+                pills.append(f'<div style="display:flex;justify-content:space-between;padding:4px 8px;border-radius:4px;background:{bg};margin-bottom:3px;font-size:12px;"><span style="color:#94a3b8;font-weight:600;">{day[:3].capitalize()}</span><span style="color:{color};font-weight:500;">{times}</span></div>')
+        return "".join(pills) if pills else "<span style=\"color:#64748b;font-style:italic;\">Orari non disponibili</span>"
+    except Exception:
+        return str(hours_str)
+
+def get_province_from_address(addr_str):
+    if not addr_str or addr_str == "None":
+        return "Sconosciuta"
+    try:
+        addr = json.loads(addr_str) if isinstance(addr_str, str) else addr_str
+        return (addr.get("state") or addr.get("city") or "Sconosciuta").strip()
+    except Exception:
+        return "Sconosciuta"
+
+def format_reviews(reviews_str):
+    if not reviews_str or reviews_str == "None":
+        return "<p style=\"color:#64748b;font-size:12.5px;\">Nessuna recensione registrata per questo locale.</p>"
+    try:
+        reviews = json.loads(reviews_str) if isinstance(reviews_str, str) else reviews_str
+        if not reviews:
+            return "<p style=\"color:#64748b;font-size:12.5px;\">Nessuna recensione registrata per questo locale.</p>"
+        html_out = ['<div class="reviews-container">']
+        for rev in reviews:
+            name = rev.get("Name", "Utente Anonimo")
+            try:
+                rating = int(rev.get("Rating", 0))
+            except Exception:
+                rating = 0
+            stars = "★" * rating + "☆" * max(0, 5 - rating)
+            when = rev.get("When", "")
+            desc = (rev.get("Description") or "").replace("\n", "<br>")
+            pic = rev.get("ProfilePicture", "")
+            reply = rev.get("reply_text_original") or ""
+            reply_html = f'<div style="margin-top:8px;padding:8px 12px;border-left:2px solid #38bdf8;background:rgba(56,189,248,0.06);border-radius:0 6px 6px 0;font-size:11.5px;color:#94a3b8;"><strong style="color:#38bdf8;">Risposta proprietario:</strong><br>{reply}</div>' if reply else ""
+            img_tag = f'<img src="{pic}" class="review-avatar" alt="{name}">' if pic else '<div class="review-avatar-placeholder"></div>'
+            html_out.append(f"""
+            <div class="review-card">
+                <div class="review-header">
+                    {img_tag}
+                    <div style="flex:1;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <strong style="color:#f1f5f9;font-size:12.5px;">{name}</strong>
+                            <span style="font-size:11px;color:#64748b;">{when}</span>
+                        </div>
+                        <div class="review-stars">{stars} <span style="font-size:11px;color:#94a3b8;font-weight:600;">({rating}/5)</span></div>
+                    </div>
+                </div>
+                <div class="review-body">{desc}</div>
+                {reply_html}
+            </div>
+            """)
+        html_out.append('</div>')
+        return "".join(html_out)
+    except Exception:
+        return "<p style=\"color:#f87171;font-size:12.5px;\">Formato recensioni non valido.</p>"
+
+def render_job_report_html(job_id, job_name, csv_text, user_lat=None, user_lng=None, job_geo_lat=None, job_geo_lng=None):
+    reader = csv.DictReader(io.StringIO(csv_text))
+    rows = list(reader)
+    if not rows:
+        return """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Nessun Risultato</title></head>
+<body style="font-family:sans-serif;padding:40px;text-align:center;">
+    <h2>Nessun dato o luogo trovato per questo job.</h2>
+    <p>Assicurati che lo scraping sia stato avviato e abbia generato risultati.</p>
+</body></html>"""
+
+    # Determine reference coordinates (center/centroid or default: Arena di Verona)
+    # Priority:
+    # 1. User URL params (?lat=..&lng=..)
+    # 2. Search job parameters (-geo: lat, lon)
+    # 3. Default: Coordinate Arena di Verona (45.4389958, 10.9943574)
+    ARENA_VERONA_LAT = 45.4389958
+    ARENA_VERONA_LNG = 10.9943574
+
+    if user_lat is not None and user_lng is not None:
+        try:
+            start_lat = float(user_lat)
+            start_lng = float(user_lng)
+            has_custom_coords = True
+        except Exception:
+            start_lat = ARENA_VERONA_LAT
+            start_lng = ARENA_VERONA_LNG
+            has_custom_coords = False
+    elif job_geo_lat is not None and job_geo_lng is not None and (float(job_geo_lat) != 0.0 or float(job_geo_lng) != 0.0):
+        try:
+            start_lat = float(job_geo_lat)
+            start_lng = float(job_geo_lng)
+            has_custom_coords = True
+        except Exception:
+            start_lat = ARENA_VERONA_LAT
+            start_lng = ARENA_VERONA_LNG
+            has_custom_coords = False
+    else:
+        start_lat = ARENA_VERONA_LAT
+        start_lng = ARENA_VERONA_LNG
+        has_custom_coords = False
+
+    ratings_for_valid = []
+    counts_for_valid = []
+    processed_rows = []
+
+    for r in rows:
+        try:
+            rc = float(r.get("review_count") or 0)
+        except Exception:
+            rc = 0.0
+        try:
+            rr = float(r.get("review_rating") or 0)
+        except Exception:
+            rr = 0.0
+
+        if rc > 0:
+            ratings_for_valid.append(rr)
+            counts_for_valid.append(rc)
+
+        lat_val = r.get("latitude") or 0
+        lng_val = r.get("longitude") or 0
+        dist = calculate_distance(start_lat, start_lng, lat_val, lng_val)
+        prov = get_province_from_address(r.get("complete_address") or r.get("address") or "")
+
+        row_copy = dict(r)
+        row_copy["_review_count"] = rc
+        row_copy["_review_rating"] = rr
+        row_copy["_dist_km"] = dist
+        row_copy["_provincia"] = prov
+        processed_rows.append(row_copy)
+
+    # Bayesian rating score parameters
+    if ratings_for_valid:
+        global_m = sum(ratings_for_valid) / len(ratings_for_valid)
+        sorted_counts = sorted(counts_for_valid)
+        n = len(sorted_counts)
+        if n % 2 == 1:
+            global_c = sorted_counts[n // 2]
+        else:
+            global_c = (sorted_counts[n // 2 - 1] + sorted_counts[n // 2]) / 2.0
+        if global_c < 10:
+            global_c = 10.0
+    else:
+        global_m = 0.0
+        global_c = 50.0
+
+    for r in processed_rows:
+        v = r["_review_count"]
+        R = r["_review_rating"]
+        if v == 0:
+            r["_bayesian"] = 0.0
+        else:
+            r["_bayesian"] = ((global_c * global_m) + (v * R)) / (global_c + v)
+
+    unique_provinces = sorted(list(set(r["_provincia"] for r in processed_rows if r["_provincia"] and r["_provincia"] != "Sconosciuta")))
+    prov_options = "".join(f'<option value="{p}">{p}</option>' for p in unique_provinces)
+
+    EXCLUDED_COLS = {
+        "title", "address", "phone", "emails", "review_rating", "review_count",
+        "category", "website", "open_hours", "latitude", "longitude", "place_id",
+        "user_reviews", "user_reviews_extended", "link",
+        "_review_count", "_review_rating", "_dist_km", "_provincia", "_bayesian"
+    }
+
+    display_name = job_name or f"Job {job_id[:8]}"
+    now_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+    cards_html_parts = []
+    for r in processed_rows:
+        dist = r.get("_dist_km", 9999.99)
+        dist_str = f"{dist} km" if dist != 9999.99 else "N/D"
+        prov = str(r.get("_provincia", ""))
+
+        name = str(r.get("title", ""))
+        address = str(r.get("address", ""))
+        phone = str(r.get("phone", ""))
+        email = str(r.get("emails", ""))
+        first_email = email.split(",")[0].strip() if email else ""
+
+        count = int(r.get("_review_count", 0))
+        rating = float(r.get("_review_rating", 0.0))
+        bayes_score = float(r.get("_bayesian", 0.0))
+
+        formatted_hours = format_open_hours(r.get("open_hours", ""))
+        formatted_reviews = format_reviews(r.get("user_reviews", ""))
+
+        category = str(r.get("category", ""))
+        website = str(r.get("website", "")).strip()
+        website_clean = website if website and website != "None" else ""
+        website_display = website_clean.replace("https://", "").replace("http://", "").rstrip("/")
+        if len(website_display) > 28:
+            website_display = website_display[:28] + "…"
+        website_link_html = f'<a href="{website_clean}" target="_blank" onclick="event.stopPropagation();" style="color:var(--accent-cyan);text-decoration:none;font-weight:500;" title="{website_clean}">🌐 {website_display}</a>' if website_clean else '<span style="color:var(--text-tertiary);">—</span>' 
+        lat = str(r.get("latitude", ""))
+        lng = str(r.get("longitude", ""))
+        place_id = str(r.get("place_id", ""))
+
+        if lat and lng and place_id:
+            maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}&query_place_id={place_id}"
+        elif name and address:
+            query = urllib.parse.quote(f"{name} {address}")
+            maps_url = f"https://www.google.com/maps/search/?api=1&query={query}"
+        else:
+            maps_url = "#"
+
+        all_fields_html = "<table class='all-fields-table'>"
+        for col, val in r.items():
+            if col not in EXCLUDED_COLS and val:
+                val_str = str(val)
+                display_val = val_str[:800] + "..." if len(val_str) > 800 else val_str
+                all_fields_html += f"<tr><th>{col}</th><td>{display_val}</td></tr>"
+        all_fields_html += "</table>"
+
+        cards_html_parts.append(f"""
+        <details class="card-row" data-rating="{rating}" data-count="{count}" data-distance="{dist}" data-provincia="{prov}" data-bayes="{bayes_score}" data-email="{first_email}" data-website="{website_clean}" data-phone="{phone}">
+            <summary>
+                <div class="col-dist font-mono">{dist_str}</div>
+                <div class="truncate">
+                    <a href="{maps_url}" target="_blank" onclick="event.stopPropagation();" class="maps-link" title="Apri su Google Maps: {name}">📍 {name}</a>
+                </div>
+                <div class="truncate text-muted" title="{address}">{address}</div>
+                <div class="truncate font-mono text-muted">{phone if phone else '—'}</div>
+                <div class="truncate" title="{website_clean}">{website_link_html}</div>
+                <div class="truncate" title="{email}"><a href="mailto:{first_email}" onclick="event.stopPropagation();" class="email-link">{first_email if first_email else '—'}</a></div>
+                <div class="col-badge font-mono">{count}</div>
+                <div class="col-rating font-mono">★ {rating:.1f}</div>
+            </summary>
+            
+            <div class="expanded-content">
+                <div class="detail-group">
+                    <span class="detail-label">Affidabilità Statistica (Bayes)</span>
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                        <span style="font-size:1.4rem;font-weight:800;color:#38bdf8;font-family:ui-monospace, monospace;">{bayes_score:.3f}</span>
+                        <div style="flex:1;">
+                            <div style="height:6px;background:#2a323d;border-radius:3px;overflow:hidden;">
+                                <div style="height:100%;width:{min(100, max(0, (bayes_score/5.0)*100)):.1f}%;background:linear-gradient(90deg, #5c7c8a, #82a1b0);border-radius:3px;"></div>
+                            </div>
+                            <span style="font-size:11px;color:#64748b;">Scala normalizzata su {count} recensioni (Media voto: {rating})</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-group">
+                    <span class="detail-label">Identità & Coordinate</span>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12.5px;">
+                        <div><span style="color:#64748b;">Categoria:</span> <strong style="color:#e2e8f0;">{category if category else 'Non definita'}</strong></div>
+                        <div><span style="color:#64748b;">Provincia:</span> <strong style="color:#e2e8f0;">{prov}</strong></div>
+                        <div><span style="color:#64748b;">Lat, Lon:</span> <span class="font-mono" style="color:#94a3b8;">{lat[:8]}, {lng[:8]}</span></div>
+                        <div><span style="color:#64748b;">Place ID:</span> <span class="font-mono" style="color:#64748b;font-size:11px;" title="{place_id}">{place_id[:12]}…</span></div>
+                    </div>
+                    {f'<div style="margin-top:6px;font-size:12px;"><span style="color:#64748b;">Tutte le email:</span> <span style="color:#34d399;font-family:ui-monospace,monospace;">{email}</span></div>' if email else ''}
+                </div>
+                
+                <div class="detail-group">
+                    <span class="detail-label">Orari Settimanali</span>
+                    <div>{formatted_hours}</div>
+                </div>
+
+                <div class="detail-group" style="grid-column: 1 / -1;">
+                    <span class="detail-label">Recensioni degli Utenti</span>
+                    {formatted_reviews}
+                </div>
+
+                <div class="detail-group" style="grid-column: 1 / -1;background:rgba(15,18,22,0.4);border:1px dashed #2a323d;">
+                    <details>
+                        <summary style="font-weight:600;color:#94a3b8;cursor:pointer;padding:6px;font-size:12px;">🔽 Mostra tutti i rimanenti dati estratti ({len(r)} campi grezzi)</summary>
+                        <div style="margin-top:10px;overflow-x:auto;">
+                            {all_fields_html}
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </details>""")
+
+    all_cards_str = "".join(cards_html_parts)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Studio - {display_name}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+    :root {{
+        --bg-base: #111419;
+        --bg-surface: #171b22;
+        --bg-surface-hover: #1e232c;
+        --border-subtle: #262c37;
+        --border-focus: #0ea5e9;
+        --text-primary: #eef2f6;
+        --text-secondary: #9ba7b7;
+        --text-tertiary: #626e80;
+        --accent-blue: #0ea5e9;
+        --accent-cyan: #38bdf8;
+        --accent-emerald: #10b981;
+        --accent-amber: #f59e0b;
+        --accent-rose: #f43f5e;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: var(--bg-base);
+        color: var(--text-primary);
+        margin: 0;
+        padding: 24px;
+        line-height: 1.5;
+        font-size: 13.5px;
+    }}
+    .report-container {{ max-width: 1560px; margin: 0 auto; }}
+    
+    .font-mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+    .text-muted {{ color: var(--text-secondary); }}
+    
+    /* Toolbar Studio */
+    .toolbar {{
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        padding: 16px 20px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }}
+    .toolbar-header {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border-subtle);
+        padding-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 12px;
+    }}
+    .toolbar-header h2 {{
+        margin: 0;
+        font-family: 'Space Grotesk', -apple-system, sans-serif;
+        font-size: 1.3rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }}
+    .toolbar-meta {{
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        align-items: center;
+    }}
+    .toolbar-meta strong {{ color: var(--text-primary); }}
+    
+    .toolbar-controls {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 14px;
+    }}
+    
+    .filters-group, .sort-group {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
+    
+    .input-container {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #111419;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--border-subtle);
+        transition: border-color 0.15s;
+    }}
+    .input-container:focus-within {{ border-color: var(--border-focus); }}
+    .input-container label {{
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }}
+    .input-container input {{
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        font-family: ui-monospace, monospace;
+        font-size: 12.5px;
+        outline: none;
+        width: 65px;
+        text-align: center;
+    }}
+    
+    select {{
+        background: #111419;
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+        padding: 7px 12px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        outline: none;
+        cursor: pointer;
+    }}
+    select:focus {{ border-color: var(--border-focus); }}
+    
+    .btn {{
+        background: #222834;
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+        padding: 6px 13px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 12px;
+        transition: all 0.15s;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        text-decoration: none;
+    }}
+    .btn:hover {{ background: #2c3444; border-color: var(--border-focus); }}
+    .btn-primary {{ background: var(--accent-blue); color: #fff; border-color: #0284c7; }}
+    .btn-primary:hover {{ background: #0284c7; }}
+    .btn-bayes {{ background: rgba(14, 165, 233, 0.12); color: #38bdf8; border-color: rgba(14, 165, 233, 0.35); }}
+    .btn-bayes:hover {{ background: rgba(14, 165, 233, 0.22); color: #fff; }}
+    
+    /* Table Headers & Rows */
+    .table-header, .card-row summary {{
+        display: grid;
+        grid-template-columns: 85px 2fr 2fr 1.3fr 1.8fr 1.5fr 75px 75px;
+        gap: 12px;
+        padding: 10px 16px;
+        align-items: center;
+    }}
+    .table-header {{
+        font-weight: 700;
+        color: var(--text-secondary);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: #13171d;
+        border-radius: 8px 8px 0 0;
+        border: 1px solid var(--border-subtle);
+        border-bottom: none;
+    }}
+    
+    .card-row {{
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        margin-bottom: 4px;
+        border-radius: 6px;
+        transition: background-color 0.15s, border-color 0.15s;
+    }}
+    .card-row[open] {{
+        border-color: #38bdf8;
+        background: #1b2129;
+    }}
+    .card-row summary {{
+        cursor: pointer;
+        font-size: 13px;
+        list-style: none;
+        user-select: none;
+    }}
+    .card-row summary:hover {{ background-color: var(--bg-surface-hover); }}
+    .card-row summary::-webkit-details-marker {{ display: none; }}
+    .truncate {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    
+    .col-dist {{ font-weight: 700; color: #fb7185; font-size: 12px; }}
+    .col-badge {{
+        background: #242c37;
+        color: var(--text-primary);
+        padding: 3px 8px;
+        border-radius: 4px;
+        text-align: center;
+        font-weight: 700;
+        font-size: 12px;
+    }}
+    .col-rating {{
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        padding: 3px 8px;
+        border-radius: 4px;
+        text-align: center;
+        font-weight: 700;
+        font-size: 12px;
+    }}
+    
+    .maps-link {{
+        color: var(--text-primary);
+        font-weight: 600;
+        text-decoration: none;
+        transition: color 0.15s;
+    }}
+    .maps-link:hover {{ color: var(--accent-cyan); text-decoration: underline; }}
+    
+    .email-link {{
+        color: var(--accent-emerald);
+        text-decoration: none;
+    }}
+    .email-link:hover {{ text-decoration: underline; }}
+
+    /* Expanded Details */
+    .expanded-content {{
+        border-top: 1px solid var(--border-subtle);
+        padding: 20px;
+        background-color: #12161c;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+        font-size: 13px;
+    }}
+    .detail-group {{
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-surface);
+        padding: 14px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--border-subtle);
+    }}
+    .detail-label {{
+        font-weight: 700;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 10.5px;
+        margin-bottom: 10px;
+        border-bottom: 1px solid var(--border-subtle);
+        padding-bottom: 5px;
+    }}
+    
+    .reviews-container {{
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 420px;
+        overflow-y: auto;
+        padding-right: 6px;
+    }}
+    .review-card {{
+        background: #14181f;
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        padding: 12px;
+    }}
+    .review-header {{ display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }}
+    .review-avatar {{ width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-subtle); }}
+    .review-avatar-placeholder {{ width: 34px; height: 34px; border-radius: 50%; background: #2a323d; }}
+    .review-stars {{ color: #fbbf24; font-size: 13px; }}
+    .review-body {{ font-style: normal; color: var(--text-secondary); line-height: 1.5; font-size: 12.5px; }}
+
+    .all-fields-table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-family: ui-monospace, monospace;
+        font-size: 11.5px;
+    }}
+    .all-fields-table th, .all-fields-table td {{
+        text-align: left;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border-subtle);
+    }}
+    .all-fields-table th {{ width: 220px; color: var(--accent-cyan); font-weight: 600; }}
+    .all-fields-table td {{ color: var(--text-secondary); word-break: break-word; }}
+</style>
+</head>
+<body>
+<div class="report-container">
+    <div class="toolbar">
+        <div class="toolbar-header">
+            <div>
+                <h2 id="last-update">📊 {display_name}</h2>
+                <div class="toolbar-meta">
+                    <span>Baricentro: <strong class="font-mono">{start_lat:.4f}, {start_lng:.4f}</strong></span>
+                    <span>Modello Bayesiano: <strong class="font-mono">m={global_m:.2f}, C={global_c:.0f}</strong></span>
+                    <span>Totale: <strong class="font-mono" style="color:var(--text-primary);">{len(processed_rows)}</strong></span>
+                    <span>Filtrati: <strong id="filtered-count" class="font-mono" style="color:var(--accent-cyan);">{len(processed_rows)}</strong> <span id="filtered-ratio" style="font-size:12px;color:var(--text-tertiary);">({len(processed_rows)} su {len(processed_rows)})</span></span>
+                </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <a href="/" class="btn">⬅ Dashboard Principale</a>
+            </div>
+        </div>
+        
+        <div class="toolbar-controls">
+            <!-- Gruppo Sinistra: Filtri -->
+            <div class="filters-group">
+                <select id="provincia-filter" onchange="applyFilters()">
+                    <option value="all">Tutte le Province</option>
+                    {prov_options}
+                </select>
+
+                <select id="has-website-filter" onchange="applyFilters()" title="Filtra per presenza del sito web">
+                    <option value="all">🌐 Sito: Tutti</option>
+                    <option value="yes">Con sito web</option>
+                    <option value="no">Senza sito web</option>
+                </select>
+
+                <select id="has-email-filter" onchange="applyFilters()" title="Filtra per presenza dell'email">
+                    <option value="all">📧 Email: Tutte</option>
+                    <option value="yes">Con email</option>
+                    <option value="no">Senza email</option>
+                </select>
+
+                <select id="has-phone-filter" onchange="applyFilters()" title="Filtra per presenza del numero di telefono">
+                    <option value="all">📞 Tel: Tutti</option>
+                    <option value="yes">Con telefono</option>
+                    <option value="no">Senza telefono</option>
+                </select>
+                
+                <div class="input-container" title="Distanza massima in km">
+                    <label for="dist-input">Max Dist (km):</label>
+                    <input type="number" id="dist-input" placeholder="∞" oninput="applyFilters()" onkeydown="handleEnter(event)">
+                </div>
+
+                <div class="input-container" title="Numero minimo di recensioni">
+                    <label for="min-rev-input">Min Recensioni:</label>
+                    <input type="number" id="min-rev-input" placeholder="0" oninput="applyFilters()" onkeydown="handleEnter(event)">
+                </div>
+
+                <div class="input-container" title="Media voto minima (es. 4.5)">
+                    <label for="min-rating-input">Min Rating ⭐:</label>
+                    <input type="number" id="min-rating-input" step="0.1" placeholder="0.0" oninput="applyFilters()" onkeydown="handleEnter(event)">
+                </div>
+            </div>
+
+            <!-- Gruppo Destra: Ordinamento e Azioni -->
+            <div class="sort-group">
+                <button class="btn btn-primary" onclick="exportEmails()">📧 Esporta Email</button>
+                <button class="btn" style="background:var(--accent-blue);color:#fff;" onclick="exportWebsites()">🌐 Esporta Siti Web</button>
+                <button class="btn btn-bayes" onclick="sortBy('bayesian')">📈 Ordina Affidabilità (Bayes)</button>
+                <button class="btn" onclick="sortBy('distance')">📍 Ordina per Distanza</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="table-header">
+        <div>Dist.</div>
+        <div>Nome (Apri Maps)</div>
+        <div>Indirizzo</div>
+        <div>Telefono</div>
+        <div>Sito Web</div>
+        <div>Email</div>
+        <div style="text-align: center;">Rec.</div>
+        <div style="text-align: center;">Media</div>
+    </div>
+    <div id="cards-container">
+        {all_cards_str}
+    </div>
+</div>
+<script>
+    let currentSortMode = 'bayesian'; 
+
+    function handleEnter(event) {{
+        if (event.key === 'Enter') {{
+            applyFilters();
+            event.target.blur();
+        }}
+    }}
+
+    function applyFilters() {{
+        updateLayout(currentSortMode);
+    }}
+
+    function sortBy(mode) {{
+        currentSortMode = mode;
+        updateLayout(mode);
+    }}
+
+    function updateLayout(mode) {{
+        const container = document.getElementById('cards-container');
+        const cards = Array.from(container.getElementsByClassName('card-row'));
+        
+        const provFilter = document.getElementById('provincia-filter').value;
+        const websiteFilter = document.getElementById('has-website-filter').value;
+        const emailFilter = document.getElementById('has-email-filter').value;
+        const phoneFilter = document.getElementById('has-phone-filter').value;
+        
+        const distInputVal = document.getElementById('dist-input').value.trim();
+        const maxDist = (distInputVal === "" || isNaN(distInputVal)) ? Infinity : parseFloat(distInputVal);
+
+        const revInputVal = document.getElementById('min-rev-input').value.trim();
+        const minRev = (revInputVal === "" || isNaN(revInputVal)) ? 0 : parseInt(revInputVal);
+
+        const ratingInputVal = document.getElementById('min-rating-input').value.trim();
+        const minRating = (ratingInputVal === "" || isNaN(ratingInputVal)) ? 0 : parseFloat(ratingInputVal);
+
+        cards.sort((a, b) => {{
+            const distA = parseFloat(a.getAttribute('data-distance'));
+            const distB = parseFloat(b.getAttribute('data-distance'));
+            const bayesA = parseFloat(a.getAttribute('data-bayes'));
+            const bayesB = parseFloat(b.getAttribute('data-bayes'));
+
+            if (mode === 'distance') {{
+                return distA - distB;
+            }} 
+            else if (mode === 'bayesian') {{
+                return bayesB - bayesA; 
+            }}
+        }});
+        
+        let visibleCount = 0;
+        cards.forEach(card => {{
+            const cardProv = card.getAttribute('data-provincia');
+            const cardDist = parseFloat(card.getAttribute('data-distance'));
+            const cardRev = parseInt(card.getAttribute('data-count'));
+            const cardRating = parseFloat(card.getAttribute('data-rating'));
+            const cardEmail = (card.getAttribute('data-email') || '').trim();
+            const cardWebsite = (card.getAttribute('data-website') || '').trim();
+            const cardPhone = (card.getAttribute('data-phone') || '').trim();
+            
+            const isProvMatch = (provFilter === 'all' || cardProv === provFilter);
+            const isDistMatch = (cardDist <= maxDist);
+            const isRevMatch = (cardRev >= minRev);
+            const isRatingMatch = (cardRating >= minRating);
+
+            const hasWebsite = (cardWebsite !== '' && cardWebsite !== 'None');
+            const isWebsiteMatch = (websiteFilter === 'all' || (websiteFilter === 'yes' && hasWebsite) || (websiteFilter === 'no' && !hasWebsite));
+
+            const hasEmail = (cardEmail !== '' && cardEmail !== 'None');
+            const isEmailMatch = (emailFilter === 'all' || (emailFilter === 'yes' && hasEmail) || (emailFilter === 'no' && !hasEmail));
+
+            const hasPhone = (cardPhone !== '' && cardPhone !== 'None');
+            const isPhoneMatch = (phoneFilter === 'all' || (phoneFilter === 'yes' && hasPhone) || (phoneFilter === 'no' && !hasPhone));
+            
+            if (isProvMatch && isDistMatch && isRevMatch && isRatingMatch && isWebsiteMatch && isEmailMatch && isPhoneMatch) {{
+                card.style.display = '';
+                visibleCount++;
+            }} else {{
+                card.style.display = 'none';
+            }}
+            
+            container.appendChild(card);
+        }});
+
+        const filteredElem = document.getElementById('filtered-count');
+        const ratioElem = document.getElementById('filtered-ratio');
+        if (filteredElem) {{
+            filteredElem.textContent = visibleCount;
+        }}
+        if (ratioElem) {{
+            ratioElem.textContent = "(" + visibleCount + " su " + cards.length + ")";
+        }}
+    }}
+
+    function exportEmails() {{
+        const container = document.getElementById('cards-container');
+        const cards = Array.from(container.getElementsByClassName('card-row'));
+        let emailsToExport = [];
+
+        cards.forEach(card => {{
+            if (card.style.display !== 'none') {{
+                const email = card.getAttribute('data-email');
+                if (email && email.trim() !== '') {{
+                    emailsToExport.push(email.trim());
+                }}
+            }}
+        }});
+
+        if (emailsToExport.length === 0) {{
+            alert("Nessuna email trovata nei profili attualmente filtrati.");
+            return;
+        }}
+
+        const textContent = emailsToExport.join(String.fromCharCode(10));
+        const blob = new Blob([textContent], {{ type: 'text/plain' }});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        
+        link.href = url;
+        link.download = 'email_filtrate.txt';
+        
+        document.body.appendChild(link);
+        link.click();
+        
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }}
+
+    function exportWebsites() {{
+        const container = document.getElementById('cards-container');
+        const cards = Array.from(container.getElementsByClassName('card-row'));
+        let websitesToExport = [];
+
+        cards.forEach(card => {{
+            if (card.style.display !== 'none') {{
+                const ws = card.getAttribute('data-website');
+                if (ws && ws.trim() !== '' && ws !== 'None') {{
+                    websitesToExport.push(ws.trim());
+                }}
+            }}
+        }});
+
+        if (websitesToExport.length === 0) {{
+            alert("Nessun sito web trovato nei profili attualmente filtrati.");
+            return;
+        }}
+
+        const uniqueWebsites = Array.from(new Set(websitesToExport));
+        const textContent = uniqueWebsites.join(String.fromCharCode(10));
+        const blob = new Blob([textContent], {{ type: 'text/plain' }});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        
+        link.href = url;
+        link.download = 'siti_web_filtrati.txt';
+        
+        document.body.appendChild(link);
+        link.click();
+        
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }}
+
+    window.onload = function() {{
+        sortBy('bayesian'); 
+    }};
+</script>
+</body>
+</html>
+"""
+    return html_content
+
+@app.route("/jobs/<job_id>/report", methods=["GET"])
+@app.route("/api/v1/jobs/<job_id>/report", methods=["GET"])
+def job_report_view(job_id):
+    try:
+        # 1. Fetch CSV data for job
+        local_csv = os.path.join(DATA_DIR, f"{job_id}.csv")
+        if os.path.exists(local_csv):
+            with open(local_csv, "r", encoding="utf-8", errors="replace") as f:
+                csv_text = f.read()
+        else:
+            req = urllib.request.Request(f"{BACKEND_URL}/download?id={job_id}")
+            with urllib.request.urlopen(req) as resp:
+                csv_text = resp.read().decode("utf-8", errors="replace")
+
+        # 2. Try to fetch job name and geo parameters from SQLite jobs.db
+        job_name = f"Job {job_id[:8]}"
+        job_geo_lat = None
+        job_geo_lng = None
+        try:
+            db_path = os.path.join(DATA_DIR, "jobs.db")
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute("SELECT name, data FROM jobs WHERE id=?", (job_id,))
+                row = c.fetchone()
+                if row:
+                    if row["name"]:
+                        job_name = row["name"]
+                    if row["data"]:
+                        try:
+                            jd = json.loads(row["data"])
+                            # Check lat/lon in job search parameters (-geo)
+                            lat_candidate = jd.get("lat")
+                            lon_candidate = jd.get("lon") or jd.get("lng")
+                            if lat_candidate and lon_candidate:
+                                lat_flt = float(lat_candidate)
+                                lon_flt = float(lon_candidate)
+                                if lat_flt != 0.0 or lon_flt != 0.0:
+                                    job_geo_lat = lat_flt
+                                    job_geo_lng = lon_flt
+                        except Exception:
+                            pass
+                conn.close()
+        except Exception:
+            pass
+
+        user_lat = request.args.get("lat", None)
+        user_lng = request.args.get("lng", None)
+
+        html_out = render_job_report_html(
+            job_id,
+            job_name,
+            csv_text,
+            user_lat=user_lat,
+            user_lng=user_lng,
+            job_geo_lat=job_geo_lat,
+            job_geo_lng=job_geo_lng
+        )
+        return Response(html_out, mimetype="text/html")
+    except Exception as e:
+        return Response(f"Errore generazione report: {e}", status=500)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
