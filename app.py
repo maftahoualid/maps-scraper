@@ -5,6 +5,7 @@ import json
 import math
 import uuid
 import time
+import shutil
 import socket
 import threading
 import http.client
@@ -468,39 +469,6 @@ main {
     gap: 8px;
 }
 
-.engine-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.btn-engine {
-    padding: 6px 13px;
-    border-radius: 6px;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid transparent;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    transition: all 0.15s;
-}
-
-.btn-engine-pause {
-    background-color: rgba(194, 157, 98, 0.15);
-    color: #c29d62;
-    border-color: rgba(194, 157, 98, 0.3);
-}
-.btn-engine-pause:hover { background-color: rgba(194, 157, 98, 0.25); }
-
-.btn-engine-resume {
-    background-color: rgba(110, 148, 124, 0.15);
-    color: #6e947c;
-    border-color: rgba(110, 148, 124, 0.3);
-}
-.btn-engine-resume:hover { background-color: rgba(110, 148, 124, 0.25); }
-
 form {
     display: flex;
     flex-direction: column;
@@ -629,7 +597,7 @@ tr:hover td { background-color: var(--color-surface-hover); }
 .status-failed, .status-error { background-color: rgba(244, 63, 94, 0.15); color: #f87171; border: 1px solid rgba(244, 63, 94, 0.35); }
 
 /* Unified Action Buttons in Job Table */
-.download-button, .delete-button, .view-button, .resume-button, .pause-job-button, .leads-button, .report-button, .json-button {
+.download-button, .delete-button, .view-button, .leads-button, .report-button, .json-button {
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 11px;
@@ -689,19 +657,6 @@ tr:hover td { background-color: var(--color-surface-hover); }
     background-color: rgba(244, 63, 94, 0.18);
     color: #fda4af;
     border-color: rgba(244, 63, 94, 0.45);
-}
-
-.pause-job-button {
-    background-color: rgba(245, 158, 11, 0.15);
-    color: #fbbf24;
-    border-color: rgba(245, 158, 11, 0.35);
-    padding: 4px 7px;
-}
-.resume-button {
-    background-color: rgba(16, 185, 129, 0.15);
-    color: #34d399;
-    border-color: rgba(16, 185, 129, 0.35);
-    padding: 4px 7px;
 }
 
 .error-message {
@@ -970,12 +925,6 @@ body:not(.pro-mode-active) .pro-field {
                 </button>
                 <button id="tab-results-btn" class="nav-tab-btn" onclick="switchView('results')" title="Visualizza i risultati e i job salvati">
                     📋 Risultati Salvati <span id="results-count-badge" class="tab-badge">0</span>
-                </button>
-            </div>
-
-            <div class="top-navbar-right">
-                <button id="engine-toggle-btn" class="btn-engine btn-engine-pause" onclick="toggleEnginePause()" title="Pause or resume all background scraping jobs">
-                    ⏸
                 </button>
             </div>
         </header>
@@ -1366,49 +1315,6 @@ cucina</textarea>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
     <script>
-    // ---- Pause / Resume All Jobs Engine Control ----
-    let isEnginePaused = false;
-
-    async function checkEngineStatus() {
-        try {
-            const res = await fetch('/api/engine/status');
-            const data = await res.json();
-            updateEngineUI(data.paused);
-        } catch (e) {
-            console.error('Engine status check error:', e);
-        }
-    }
-
-    function updateEngineUI(paused) {
-        isEnginePaused = paused;
-        const badge = document.getElementById('engine-status-badge');
-        const btn = document.getElementById('engine-toggle-btn');
-        if (badge) {
-            badge.className = paused ? 'badge-engine badge-engine-paused' : 'badge-engine badge-engine-running';
-            badge.textContent = paused ? 'Engine Paused' : 'Engine Active';
-        }
-        if (btn) {
-            btn.className = paused ? 'btn-engine btn-engine-resume' : 'btn-engine btn-engine-pause';
-            btn.innerHTML = paused ? '▶' : '⏸';
-            btn.title = paused ? 'Resume All Jobs' : 'Pause All Jobs';
-        }
-    }
-
-    async function toggleEnginePause() {
-        const btn = document.getElementById('engine-toggle-btn');
-        btn.disabled = true;
-        try {
-            const targetAction = isEnginePaused ? 'resume' : 'pause';
-            const res = await fetch('/api/engine/' + targetAction, { method: 'POST' });
-            const data = await res.json();
-            updateEngineUI(data.paused);
-        } catch (e) {
-            alert('Error toggling engine state: ' + e.message);
-        } finally {
-            btn.disabled = false;
-        }
-    }
-
     // ---- Error display ----
     function showError(msg) {
         const el = document.getElementById('error-container');
@@ -1719,8 +1625,6 @@ cucina</textarea>
         setTimeout(() => {
             initGridMap();
         }, 200);
-
-        checkEngineStatus();
     });
 
     // ---- Parse Geo string "lat,lon" ----
@@ -1771,36 +1675,6 @@ cucina</textarea>
             }
         };
         reader.readAsText(file);
-    }
-
-    // ---- Individual Job Pause & Resume Actions ----
-    async function pauseJob(jobId) {
-        try {
-            const res = await fetch('/api/v1/jobs/' + jobId + '/pause', { method: 'POST' });
-            if (!res.ok) {
-                const err = await res.text();
-                alert('Pause error: ' + err);
-            } else {
-                fetchJobs();
-            }
-        } catch (e) {
-            alert('Request error: ' + e.message);
-        }
-    }
-
-    async function resumeJobSearch(jobId) {
-        try {
-            const res = await fetch('/api/v1/jobs/' + jobId + '/resume', { method: 'POST' });
-            if (!res.ok) {
-                const err = await res.text();
-                alert('Resume error: ' + err);
-            } else {
-                const data = await res.json();
-                fetchJobs();
-            }
-        } catch (e) {
-            alert('Request error: ' + e.message);
-        }
     }
 
     // ---- Export to LeadsDB Handler (-leadsdb-api-key) ----
@@ -1995,7 +1869,6 @@ cucina</textarea>
             }
 
             renderJobs(cachedJobs);
-            checkEngineStatus();
         } catch (err) {
             console.error('fetchJobs error:', err);
         }
@@ -2039,16 +1912,6 @@ cucina</textarea>
             }
 
             let actionsHtml = '<div class="actions-cell">';
-
-            // Pause button for currently working jobs
-            if (status === 'working') {
-                actionsHtml += `<button class="pause-job-button" onclick="pauseJob('${j.id}')" title="Pause this search and save results">⏸</button>`;
-            }
-
-            // Resume button for paused, failed, or completed jobs to continue scraping missing places without duplicates
-            if (status === 'paused' || status === 'failed' || status === 'error' || status === 'ok') {
-                actionsHtml += `<button class="resume-button" onclick="resumeJobSearch('${j.id}')" title="Resume search from saved results without duplicates">▶</button>`;
-            }
 
             // Export & View buttons ("View Map" -> "Map", LeadsDB -> DB, CSV download linked on filename)
             if (status === 'ok' || status === 'paused' || status === 'working') {
@@ -2363,8 +2226,8 @@ cucina</textarea>
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                         <span style="font-size:12.5px;font-weight:600;color:#94a3b8;">Seleziona le ricerche da unire:</span>
                         <div style="display:flex;gap:6px;">
-                            <button type="button" onclick="selectMergeJobsByStatus('ok,paused')" style="padding:4px 10px;font-size:11.5px;background:#0369a1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
-                                ✅ Tutti con stato OK/PAUSED
+                            <button type="button" onclick="selectMergeJobsByStatus('ok')" style="padding:4px 10px;font-size:11.5px;background:#0369a1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                                ✅ Tutti con stato OK
                             </button>
                             <button type="button" onclick="toggleAllMergeJobs(true)" style="padding:4px 8px;font-size:11.5px;background:#334155;color:#f1f5f9;border:none;border-radius:4px;cursor:pointer;">
                                 Tutti
@@ -2539,177 +2402,6 @@ def format_job_clean(raw_job):
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
-
-# ---- Pause / Resume All Jobs Engine Control ----
-@app.route("/api/engine/status", methods=["GET"])
-def engine_status():
-    res = docker_action("gmaps-backend", "json")
-    if res.get("status") == "ok":
-        paused = bool(res.get("state", {}).get("Paused", False))
-        return jsonify({"status": "ok", "paused": paused, "state": res.get("state", {}).get("Status")})
-    return jsonify({"status": "unknown", "paused": False}), 200
-
-@app.route("/api/engine/pause", methods=["POST"])
-def engine_pause():
-    res = docker_action("gmaps-backend", "pause")
-    return jsonify({"action": "pause", "paused": True, "result": res})
-
-@app.route("/api/engine/resume", methods=["POST"])
-def engine_resume():
-    res = docker_action("gmaps-backend", "unpause")
-    return jsonify({"action": "resume", "paused": False, "result": res})
-
-# ---- Per-Job Pause & Deduplicated Resume Endpoints ----
-@app.route("/api/v1/jobs/<job_id>/pause", methods=["POST"])
-def pause_individual_job(job_id):
-    """
-    Pauses an active scraping job:
-    1. Sets job status to 'paused' in SQLite database.
-    2. Cancels job in gmaps-backend if running there.
-    3. Stops any running CLI runner container for this job.
-    4. Results accumulated so far remain safely in <job_id>.csv on disk.
-    """
-    try:
-        # 1. Stop background CLI runner container if one is running
-        stop_job_runner(job_id)
-
-        # 2. Cancel/Stop job in gmaps-backend if active there
-        try:
-            del_req = urllib.request.Request(f"{BACKEND_URL}/api/v1/jobs/{job_id}", method="DELETE")
-            urllib.request.urlopen(del_req, timeout=3)
-        except Exception:
-            pass
-
-        try:
-            del_req2 = urllib.request.Request(f"{BACKEND_URL}/delete?id={job_id}", method="DELETE")
-            urllib.request.urlopen(del_req2, timeout=3)
-        except Exception:
-            pass
-
-        # 3. Update status to 'paused' in SQLite
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({"error": "Database not accessible"}), 500
-
-        cur = conn.cursor()
-        cur.execute("UPDATE jobs SET status = 'paused', updated_at = ? WHERE id = ?", (int(time.time()), job_id))
-        conn.commit()
-        conn.close()
-
-        return jsonify({"id": job_id, "status": "paused", "message": "Search paused. Results so far are saved in place."})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/v1/jobs/<job_id>/resume", methods=["POST"])
-def resume_individual_job(job_id):
-    """
-    Resumes a paused, interrupted, or finished job without spawning any new job:
-    1. Loads the original job configuration.
-    2. Creates and runs a dedicated CLI runner container on <job_id>.csv with -resume.
-    3. Keeps the same single job ID, updates status to 'working', and appends new places in place.
-    """
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({"error": "Database not accessible"}), 500
-
-        cur = conn.cursor()
-        cur.execute("SELECT id, name, status, data FROM jobs WHERE id = ?", (job_id,))
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return jsonify({"error": "Job not found"}), 404
-
-        raw_data = json.loads(row["data"]) if row["data"] else {}
-        name = row["name"] or "Job"
-
-        # Prepare input keywords file for this specific job
-        keywords = raw_data.get("keywords") or [name]
-        input_file_name = f"input_{job_id[:8]}.txt"
-        local_input_path = os.path.join(DATA_DIR, input_file_name)
-        with open(local_input_path, "w", encoding="utf-8") as f:
-            for kw in keywords:
-                f.write(f"{kw.strip()}\n")
-
-        # 1. Update status in DB to working
-        cur.execute("UPDATE jobs SET status = 'working', updated_at = ? WHERE id = ?", (int(time.time()), job_id))
-        conn.commit()
-        conn.close()
-
-        # 2. Build CLI runner arguments operating strictly on the single output file <job_id>.csv
-        lang = str(raw_data.get("lang") or "en")
-        zoom = int(raw_data.get("zoom") or 15)
-        depth = int(raw_data.get("depth") or 10)
-        radius = float(raw_data.get("radius") or 10000)
-        lat = str(raw_data.get("lat") or "")
-        lon = str(raw_data.get("lon") or "")
-        exit_on_inactivity = str(raw_data.get("exit_on_inactivity") or "5m")
-
-        cmd = [
-            "-input", f"/data/{input_file_name}",
-            "-results", f"/data/{job_id}.csv",
-            "-resume",
-            "-lang", lang,
-            "-zoom", str(zoom),
-            "-depth", str(depth),
-            "-radius", str(radius),
-            "-exit-on-inactivity", exit_on_inactivity,
-            "-c", "4",
-            "-pages-per-browser", "4",
-            "-browser-pool-size", "2"
-        ]
-
-        if lat and lon and lat != "0" and lon != "0":
-            cmd.extend(["-geo", f"{lat},{lon}"])
-        if bool(raw_data.get("email", False)):
-            cmd.append("-email")
-        if bool(raw_data.get("fast_mode", False)):
-            cmd.append("-fast-mode")
-        if bool(raw_data.get("extra_reviews", False)):
-            cmd.append("-extra-reviews")
-        if bool(raw_data.get("disable_page_reuse", False)):
-            cmd.append("-disable-page-reuse")
-
-        proxies = raw_data.get("proxies") or []
-        if proxies:
-            cmd.extend(["-proxies", ",".join(proxies)])
-
-        # Stop any previous runner for this job if still active
-        stop_job_runner(job_id)
-
-        # 3. Create and launch Docker runner container using the host-mounted data folder
-        host_data = get_host_data_dir()
-        container_name = f"gmaps-runner-{job_id}"
-        create_payload = {
-            "Image": "gosom/google-maps-scraper:latest",
-            "Cmd": cmd,
-            "HostConfig": {
-                "Binds": [f"{host_data}:/data:rw"]
-            }
-        }
-
-        status_code, resp_text = docker_api_request("POST", f"/v1.44/containers/create?name={container_name}", create_payload)
-        if status_code != 201:
-            return jsonify({"error": f"Failed to create runner container: {resp_text}"}), 500
-
-        c_info = json.loads(resp_text)
-        cid = c_info.get("Id")
-
-        start_status, start_resp = docker_api_request("POST", f"/v1.44/containers/{cid}/start")
-        if start_status not in (204, 200):
-            return jsonify({"error": f"Failed to start runner: {start_resp}"}), 500
-
-        # Spawn monitor thread to handle completion and update status
-        threading.Thread(target=monitor_job_runner, args=(job_id, cid), daemon=True).start()
-
-        return jsonify({
-            "status": "working",
-            "job_id": job_id,
-            "message": "Job resumed in place. Appending results directly without creating duplicate jobs."
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ---- Standard REST Endpoints (/api/v1/jobs) ----
 @app.route("/api/v1/jobs", methods=["GET"])
